@@ -148,22 +148,22 @@ const MONAD_FACTS = [
     linkText: "Learn about timing",
   },
   {
-    fact: "Monad achieves 500M gas/sec throughput - 33x more than Ethereum's 15M gas/sec.",
+    fact: "Monad achieves 10,000 TPS with 500M gas/sec - 33x more than Ethereum's 15M gas/sec.",
     link: "https://docs.monad.xyz/developer-essentials/summary#gas-limits",
     linkText: "Gas limits explained",
   },
   {
-    fact: "Smart contracts on Monad can be up to 128kb - 5x larger than Ethereum's 24.5kb limit!",
+    fact: "Smart contracts on Monad can be up to 128KB - 5x larger than Ethereum's 24.5KB limit!",
     link: "https://docs.monad.xyz/developer-essentials/summary#smart-contracts",
     linkText: "Contract limits",
   },
   {
-    fact: "Monad uses parallel execution - transactions run concurrently but appear sequential.",
+    fact: "Monad uses parallel execution with optimistic concurrency - transactions run concurrently but appear sequential.",
     link: "https://docs.monad.xyz/monad-arch/execution/parallel-execution",
     linkText: "Parallel execution",
   },
   {
-    fact: "Blocks are finalized in just 800ms (2 blocks) - no more waiting for confirmations!",
+    fact: "Blocks are finalized in just 800ms (2 slots) - speculative finality in just 400ms!",
     link: "https://docs.monad.xyz/monad-arch/consensus/monad-bft",
     linkText: "MonadBFT consensus",
   },
@@ -178,18 +178,62 @@ const MONAD_FACTS = [
     linkText: "Supported tooling",
   },
   {
-    fact: "Monad uses JIT compilation to execute smart contracts as native machine code.",
+    fact: "Monad's JIT compiler tracks hot contracts by gas usage and compiles them to native x86-64 machine code.",
     link: "https://docs.monad.xyz/monad-arch/execution/native-compilation",
     linkText: "JIT compilation",
+  },
+  {
+    fact: "MonadDb operates directly on block devices, bypassing the filesystem entirely for maximum SSD performance.",
+    link: "https://docs.monad.xyz/monad-arch/execution/monaddb",
+    linkText: "MonadDb architecture",
+  },
+  {
+    fact: "Asynchronous execution expands the execution budget by 12x compared to Ethereum's sync model.",
+    link: "https://docs.monad.xyz/monad-arch/consensus/asynchronous-execution",
+    linkText: "Async execution",
+  },
+  {
+    fact: "MonadDb implements Patricia Tries natively on-disk - no generic B-Trees or LSM-Trees needed!",
+    link: "https://docs.monad.xyz/monad-arch/execution/monaddb",
+    linkText: "Native Patricia Tries",
+  },
+  {
+    fact: "RaptorCast uses erasure coding to deliver blocks in one round-trip, even with 20% packet loss.",
+    link: "https://docs.monad.xyz/monad-arch/consensus/raptorcast",
+    linkText: "RaptorCast protocol",
+  },
+  {
+    fact: "No global mempool - transactions go directly to the next 3 leaders for lower latency.",
+    link: "https://docs.monad.xyz/monad-arch/consensus/local-mempool",
+    linkText: "Local mempool",
+  },
+  {
+    fact: "Sequential writes to MonadDb improve SSD lifespan by reducing write amplification.",
+    link: "https://docs.monad.xyz/monad-arch/execution/monaddb",
+    linkText: "SSD optimization",
+  },
+  {
+    fact: "Monad re-executes only conflicting transactions - signature recovery is cached from first run!",
+    link: "https://docs.monad.xyz/monad-arch/execution/parallel-execution",
+    linkText: "Smart re-execution",
   },
 ];
 
 // Simple jumping game component
-function JumpingGame() {
+function JumpingGame({ autoPlay = false }: { autoPlay?: boolean }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [score, setScore] = useState(0);
   const [gameOver, setGameOver] = useState(false);
-  const [gameStarted, setGameStarted] = useState(false);
+  const [gameStarted, setGameStarted] = useState(autoPlay);
+
+  useEffect(() => {
+    // Auto-start if autoPlay is enabled
+    if (autoPlay) {
+      setGameStarted(true);
+      setGameOver(false);
+      setScore(0);
+    }
+  }, [autoPlay]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -211,18 +255,18 @@ function JumpingGame() {
     const playerSize = 30;
 
     const jump = () => {
-      if (!isJumping && gameStarted && !gameOver) {
+      if (!isJumping && (gameStarted || autoPlay) && !gameOver) {
         velocity = jumpForce;
         isJumping = true;
       }
-      if (!gameStarted) {
+      if (!gameStarted && !autoPlay) {
         setGameStarted(true);
         setGameOver(false);
         setScore(0);
         currentScore = 0;
         obstacles = [];
       }
-      if (gameOver) {
+      if (gameOver && !autoPlay) {
         setGameOver(false);
         setGameStarted(true);
         setScore(0);
@@ -242,8 +286,10 @@ function JumpingGame() {
 
     const handleClick = () => jump();
 
-    canvas.addEventListener("click", handleClick);
-    window.addEventListener("keydown", handleKeyDown);
+    if (!autoPlay) {
+      canvas.addEventListener("click", handleClick);
+      window.addEventListener("keydown", handleKeyDown);
+    }
 
     const gameLoop = () => {
       ctx.fillStyle = "#18181b";
@@ -253,7 +299,7 @@ function JumpingGame() {
       ctx.fillStyle = "#3f3f46";
       ctx.fillRect(0, groundY + playerSize, canvas.width, 2);
 
-      if (!gameStarted) {
+      if (!gameStarted && !autoPlay) {
         ctx.fillStyle = "#a1a1aa";
         ctx.font = "14px system-ui";
         ctx.textAlign = "center";
@@ -265,15 +311,35 @@ function JumpingGame() {
       }
 
       if (gameOver) {
-        ctx.fillStyle = "#ef4444";
-        ctx.font = "bold 18px system-ui";
-        ctx.textAlign = "center";
-        ctx.fillText(`Game Over! Score: ${currentScore}`, canvas.width / 2, 80);
-        ctx.fillStyle = "#a1a1aa";
-        ctx.font = "14px system-ui";
-        ctx.fillText("Click or press Space to restart", canvas.width / 2, 105);
-        animationId = requestAnimationFrame(gameLoop);
-        return;
+        if (autoPlay) {
+          // Auto-restart in autoPlay mode
+          setGameOver(false);
+          currentScore = 0;
+          setScore(0);
+          obstacles = [];
+          playerY = groundY;
+          velocity = 0;
+          isJumping = false;
+        } else {
+          ctx.fillStyle = "#ef4444";
+          ctx.font = "bold 18px system-ui";
+          ctx.textAlign = "center";
+          ctx.fillText(`Game Over! Score: ${currentScore}`, canvas.width / 2, 80);
+          ctx.fillStyle = "#a1a1aa";
+          ctx.font = "14px system-ui";
+          ctx.fillText("Click or press Space to restart", canvas.width / 2, 105);
+          animationId = requestAnimationFrame(gameLoop);
+          return;
+        }
+      }
+
+      // Auto-play AI: jump when obstacle is approaching
+      if (autoPlay && !isJumping) {
+        const nearestObstacle = obstacles.find((obs) => obs.x > 30 && obs.x < 120);
+        if (nearestObstacle) {
+          velocity = jumpForce;
+          isJumping = true;
+        }
       }
 
       // Physics
@@ -289,6 +355,14 @@ function JumpingGame() {
       // Player (purple square - Monad themed!)
       ctx.fillStyle = "#836EF9";
       ctx.fillRect(50, playerY, playerSize, playerSize);
+
+      // Auto-play indicator
+      if (autoPlay) {
+        ctx.fillStyle = "#836EF9";
+        ctx.font = "10px system-ui";
+        ctx.textAlign = "right";
+        ctx.fillText("AUTO", canvas.width - 10, 20);
+      }
 
       // Spawn obstacles
       frameCount++;
@@ -356,21 +430,67 @@ function JumpingGame() {
   );
 }
 
+// Simple clicker game component
+function ClickerGame() {
+  const [clicks, setClicks] = useState(0);
+
+  const handleClick = () => {
+    setClicks((prev) => prev + 1);
+  };
+
+  return (
+    <div className="flex flex-col items-center">
+      <p className="mb-3 text-sm text-zinc-500 dark:text-zinc-400">
+        Click to increase your meaningless score
+      </p>
+      <button
+        onClick={handleClick}
+        className="h-24 w-24 cursor-pointer rounded-full bg-gradient-to-br from-purple-500 to-purple-700 text-4xl shadow-lg transition-transform hover:scale-105 active:scale-95"
+      >
+        💎
+      </button>
+      <p className="mt-4 text-2xl font-bold text-zinc-900 dark:text-zinc-100">
+        {clicks.toLocaleString()}
+      </p>
+      <p className="mt-1 text-xs text-zinc-400">
+        {clicks >= 100 ? "This accomplishes nothing 🎉" : clicks >= 50 ? "Still meaningless 💪" : clicks >= 10 ? "Why are you doing this" : ""}
+      </p>
+    </div>
+  );
+}
+
 // Loading entertainment component
 function LoadingEntertainment({ elapsedTime }: { elapsedTime: number }) {
   const [currentFactIndex, setCurrentFactIndex] = useState(0);
-  const [activeTab, setActiveTab] = useState<"video" | "facts" | "game">("video");
+  const [achievementShown, setAchievementShown] = useState(false);
+  const showExtended = elapsedTime >= 20;
+  const showGrass = elapsedTime >= 200;
+  const showAchievement = elapsedTime >= 250;
+  const showClickerGame = elapsedTime >= 300;
 
-  // Rotate facts every 5 seconds
+  // Rotate facts every 10 seconds
   useEffect(() => {
-    if (elapsedTime < 20) return;
+    if (!showExtended) return;
     const interval = setInterval(() => {
       setCurrentFactIndex((prev) => (prev + 1) % MONAD_FACTS.length);
-    }, 5000);
+    }, 10000);
     return () => clearInterval(interval);
-  }, [elapsedTime]);
+  }, [showExtended]);
 
-  const showExtended = elapsedTime >= 20;
+  // Show achievement popup at 250 seconds
+  useEffect(() => {
+    if (showAchievement && !achievementShown) {
+      setAchievementShown(true);
+    }
+  }, [showAchievement, achievementShown]);
+
+  const goToPrevFact = () => {
+    setCurrentFactIndex((prev) => (prev - 1 + MONAD_FACTS.length) % MONAD_FACTS.length);
+  };
+
+  const goToNextFact = () => {
+    setCurrentFactIndex((prev) => (prev + 1) % MONAD_FACTS.length);
+  };
 
   return (
     <div className="mt-8">
@@ -378,51 +498,7 @@ function LoadingEntertainment({ elapsedTime }: { elapsedTime: number }) {
         {elapsedTime > 0 ? `Fetching... ${elapsedTime}s` : "Fetching..."}
       </p>
 
-      {showExtended && (
-        <div className="mb-4 rounded-lg bg-amber-50 px-4 py-3 dark:bg-amber-900/20">
-          <p className="text-sm text-amber-700 dark:text-amber-300">
-            This collection has a lot of data! It might take 2-4 minutes to fetch everything.
-            Hang tight, or explore some Monad facts below!
-          </p>
-        </div>
-      )}
-
-      {showExtended && (
-        <div className="mb-4 flex items-center justify-center gap-2">
-          <button
-            onClick={() => setActiveTab("video")}
-            className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
-              activeTab === "video"
-                ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900"
-                : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-700"
-            }`}
-          >
-            Video
-          </button>
-          <button
-            onClick={() => setActiveTab("facts")}
-            className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
-              activeTab === "facts"
-                ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900"
-                : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-700"
-            }`}
-          >
-            Monad Facts
-          </button>
-          <button
-            onClick={() => setActiveTab("game")}
-            className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
-              activeTab === "game"
-                ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900"
-                : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-700"
-            }`}
-          >
-            Mini Game
-          </button>
-        </div>
-      )}
-
-      {(activeTab === "video" || !showExtended) && (
+      {!showExtended && (
         <div className="overflow-hidden rounded-xl">
           <video
             autoPlay
@@ -436,52 +512,134 @@ function LoadingEntertainment({ elapsedTime }: { elapsedTime: number }) {
         </div>
       )}
 
-      {activeTab === "facts" && showExtended && (
-        <div className="rounded-xl bg-zinc-100 p-6 dark:bg-zinc-800">
-          <div className="mb-4 flex items-center gap-2">
-            <span className="text-2xl">💡</span>
-            <span className="text-sm font-medium text-zinc-600 dark:text-zinc-300">
-              Did you know?
-            </span>
+      {showExtended && (
+        <>
+          <div className="mb-4 rounded-lg bg-amber-50 px-4 py-3 dark:bg-amber-900/20">
+            <p className="text-sm text-amber-700 dark:text-amber-300">
+              This collection has a lot of data! It might take 2-4 minutes to fetch everything.
+            </p>
           </div>
-          <p className="mb-4 text-lg font-medium text-zinc-900 dark:text-zinc-100">
-            {MONAD_FACTS[currentFactIndex].fact}
-          </p>
-          <a
-            href={MONAD_FACTS[currentFactIndex].link}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1 text-sm font-medium text-purple-600 hover:text-purple-700 dark:text-purple-400 dark:hover:text-purple-300"
-          >
-            {MONAD_FACTS[currentFactIndex].linkText}
-            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-            </svg>
-          </a>
-          <div className="mt-4 flex justify-center gap-1">
-            {MONAD_FACTS.map((_, i) => (
-              <button
-                key={i}
-                onClick={() => setCurrentFactIndex(i)}
-                className={`h-2 w-2 rounded-full transition-colors ${
-                  i === currentFactIndex
-                    ? "bg-purple-600 dark:bg-purple-400"
-                    : "bg-zinc-300 hover:bg-zinc-400 dark:bg-zinc-600 dark:hover:bg-zinc-500"
-                }`}
-              />
-            ))}
+
+          {/* Facts section */}
+          <div className="mb-4 rounded-xl bg-zinc-100 p-6 dark:bg-zinc-800">
+            <div className="mb-3 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="text-xl">💡</span>
+                <span className="text-sm font-medium text-zinc-600 dark:text-zinc-300">
+                  Did you know?
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={goToPrevFact}
+                  className="rounded-full p-1 text-zinc-400 transition-colors hover:bg-zinc-200 hover:text-zinc-600 dark:hover:bg-zinc-700 dark:hover:text-zinc-200"
+                >
+                  <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                  </svg>
+                </button>
+                <button
+                  onClick={goToNextFact}
+                  className="rounded-full p-1 text-zinc-400 transition-colors hover:bg-zinc-200 hover:text-zinc-600 dark:hover:bg-zinc-700 dark:hover:text-zinc-200"
+                >
+                  <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+            <p className="mb-3 text-lg font-medium text-zinc-900 dark:text-zinc-100">
+              {MONAD_FACTS[currentFactIndex].fact}
+            </p>
+            <a
+              href={MONAD_FACTS[currentFactIndex].link}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 text-sm font-medium text-purple-600 hover:text-purple-700 dark:text-purple-400 dark:hover:text-purple-300"
+            >
+              {MONAD_FACTS[currentFactIndex].linkText}
+              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+              </svg>
+            </a>
+            <div className="mt-4 flex justify-center gap-1.5">
+              {MONAD_FACTS.map((_, i) => (
+                <button
+                  key={i}
+                  onClick={() => setCurrentFactIndex(i)}
+                  className={`h-2 w-2 rounded-full transition-colors ${
+                    i === currentFactIndex
+                      ? "bg-purple-600 dark:bg-purple-400"
+                      : "bg-zinc-300 hover:bg-zinc-400 dark:bg-zinc-600 dark:hover:bg-zinc-500"
+                  }`}
+                />
+              ))}
+            </div>
           </div>
-        </div>
+
+          {/* Game section - show jumping game or clicker game */}
+          <div className="rounded-xl bg-zinc-100 p-6 dark:bg-zinc-800">
+            {showClickerGame ? (
+              <>
+                <div className="mb-4 text-center">
+                  <span className="text-sm font-medium text-zinc-600 dark:text-zinc-300">
+                    New game unlocked! 🎮
+                  </span>
+                </div>
+                <ClickerGame />
+              </>
+            ) : (
+              <>
+                <div className="mb-4 text-center">
+                  <span className="text-sm font-medium text-zinc-600 dark:text-zinc-300">
+                    {elapsedTime >= 50
+                      ? "The AI is playing now... just relax!"
+                      : "Jump over the obstacles while you wait!"}
+                  </span>
+                </div>
+                <JumpingGame autoPlay={elapsedTime >= 50} />
+              </>
+            )}
+          </div>
+
+          {/* Touch grass message at 200s */}
+          {showGrass && (
+            <div className="mt-4 rounded-xl bg-green-100 p-4 text-center dark:bg-green-900/30">
+              <p className="text-lg font-medium text-green-800 dark:text-green-200">
+                Still loading? Maybe touch some grass 🌱
+              </p>
+            </div>
+          )}
+
+          {/* Achievement popup at 250s - Steam style */}
+          {achievementShown && (
+            <div className="fixed bottom-6 right-6 z-40 flex items-center gap-3 rounded-sm bg-gradient-to-r from-zinc-800 to-zinc-900 px-4 py-3 shadow-2xl">
+              <div className="flex h-12 w-12 items-center justify-center rounded-sm bg-zinc-700 text-2xl">
+                🏆
+              </div>
+              <div>
+                <p className="text-xs font-medium uppercase tracking-wide text-zinc-400">
+                  Achievement Unlocked
+                </p>
+                <p className="text-sm font-bold text-white">
+                  Patience Master
+                </p>
+              </div>
+            </div>
+          )}
+        </>
       )}
 
-      {activeTab === "game" && showExtended && (
-        <div className="rounded-xl bg-zinc-100 p-6 dark:bg-zinc-800">
-          <div className="mb-4 text-center">
-            <span className="text-sm font-medium text-zinc-600 dark:text-zinc-300">
-              Jump over the obstacles while you wait!
-            </span>
+      {/* Grass at bottom of screen at 200s */}
+      {showGrass && (
+        <div className="fixed bottom-0 left-0 right-0 z-20 flex justify-center overflow-hidden text-4xl">
+          <div className="flex">
+            {Array.from({ length: 30 }).map((_, i) => (
+              <span key={i} className="inline-block">
+                {["🌱", "🌿", "☘️", "🍀"][i % 4]}
+              </span>
+            ))}
           </div>
-          <JumpingGame />
         </div>
       )}
     </div>
@@ -531,6 +689,35 @@ function HomeContent() {
   const [network, setNetwork] = useState<Network>("testnet");
   const [tokenType, setTokenType] = useState<TokenType>("erc721");
   const [elapsedTime, setElapsedTime] = useState(0);
+  const [floatingHearts, setFloatingHearts] = useState<{ id: number; x: number; y: number; emoji: string }[]>([]);
+
+  // Console easter egg
+  useEffect(() => {
+    console.log(
+      "%c gm from Monad! ",
+      "background: #836EF9; color: white; font-size: 24px; font-weight: bold; padding: 10px 20px; border-radius: 8px;"
+    );
+    console.log(
+      "%c Want to build on the fastest EVM? Check out https://docs.monad.xyz ",
+      "color: #836EF9; font-size: 14px;"
+    );
+  }, []);
+
+  // Title click spawns floating heart
+  const handleTitleClick = (e: React.MouseEvent) => {
+    const hearts = ["💜", "💖", "💗", "💝", "🩷", "❤️", "🧡", "💛"];
+    const newHeart = {
+      id: Date.now(),
+      x: e.clientX,
+      y: e.clientY,
+      emoji: hearts[Math.floor(Math.random() * hearts.length)],
+    };
+    setFloatingHearts((prev) => [...prev, newHeart]);
+    // Remove heart after animation
+    setTimeout(() => {
+      setFloatingHearts((prev) => prev.filter((h) => h.id !== newHeart.id));
+    }, 2000);
+  };
 
   // Load network and token type from localStorage on mount
   useEffect(() => {
@@ -538,17 +725,60 @@ function HomeContent() {
     setTokenType(getSavedTokenType());
   }, []);
 
+  // Debug mode for testing time-based features
+  const [debugMode, setDebugMode] = useState(false);
+  const [debugTime, setDebugTime] = useState(0);
+  const [debugPosition, setDebugPosition] = useState({ x: 20, y: 20 });
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
+
+  // Handle debug panel dragging
+  const handleMouseDown = (e: React.MouseEvent) => {
+    setIsDragging(true);
+    setDragOffset({
+      x: e.clientX - debugPosition.x,
+      y: e.clientY - debugPosition.y,
+    });
+  };
+
+  useEffect(() => {
+    if (!isDragging) return;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      setDebugPosition({
+        x: e.clientX - dragOffset.x,
+        y: e.clientY - dragOffset.y,
+      });
+    };
+
+    const handleMouseUp = () => {
+      setIsDragging(false);
+    };
+
+    window.addEventListener("mousemove", handleMouseMove);
+    window.addEventListener("mouseup", handleMouseUp);
+
+    return () => {
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseup", handleMouseUp);
+    };
+  }, [isDragging, dragOffset]);
+
   // Timer for elapsed time during loading
   useEffect(() => {
-    if (!loading) {
+    if (!loading && !debugMode) {
       setElapsedTime(0);
       return;
     }
+    if (debugMode) return; // Don't auto-increment in debug mode
     const interval = setInterval(() => {
       setElapsedTime((prev) => prev + 1);
     }, 1000);
     return () => clearInterval(interval);
-  }, [loading]);
+  }, [loading, debugMode]);
+
+  // Use debug time when in debug mode
+  const displayTime = debugMode ? debugTime : elapsedTime;
 
   // Save network to localStorage when it changes
   const handleNetworkChange = (newNetwork: Network) => {
@@ -650,13 +880,59 @@ function HomeContent() {
   };
 
 
+  // Soft pastel colors that cycle every 30 seconds starting at 70s
+  const softColors = [
+    "bg-purple-100 dark:bg-purple-900/30",
+    "bg-pink-100 dark:bg-pink-900/30",
+    "bg-blue-100 dark:bg-blue-900/30",
+    "bg-green-100 dark:bg-green-900/30",
+    "bg-yellow-100 dark:bg-yellow-900/30",
+    "bg-orange-100 dark:bg-orange-900/30",
+    "bg-rose-100 dark:bg-rose-900/30",
+    "bg-cyan-100 dark:bg-cyan-900/30",
+  ];
+
+  const getBackgroundClass = () => {
+    if (displayTime < 70) return "bg-zinc-50 dark:bg-zinc-950";
+    const colorIndex = Math.floor((displayTime - 70) / 30) % softColors.length;
+    return softColors[colorIndex];
+  };
+
   return (
-    <div className="flex min-h-screen items-center justify-center bg-zinc-50 px-4 py-12 dark:bg-zinc-950">
-      <main className="w-full max-w-2xl">
+    <div className={`relative flex min-h-screen items-center justify-center px-4 py-12 transition-all duration-1000 ${getBackgroundClass()}`}>
+      {/* Minecraft video background after 150 seconds */}
+      {displayTime >= 150 && (
+        <video
+          autoPlay
+          loop
+          muted
+          playsInline
+          className="pointer-events-none fixed inset-0 z-0 h-full w-full object-cover opacity-30"
+          src="/minecraft.mp4"
+        />
+      )}
+      {/* Floating hearts from title clicks */}
+      {floatingHearts.map((heart) => (
+        <div
+          key={heart.id}
+          className="pointer-events-none fixed z-50 animate-ping text-2xl"
+          style={{
+            left: heart.x,
+            top: heart.y,
+            transform: "translate(-50%, -50%)",
+          }}
+        >
+          {heart.emoji}
+        </div>
+      ))}
+      <main className="relative z-10 w-full max-w-2xl">
         <div className="rounded-2xl bg-white p-8 shadow-sm dark:bg-zinc-900">
           <div className="mb-6 flex items-start justify-between">
             <div>
-              <h1 className="mb-2 text-2xl font-semibold text-zinc-900 dark:text-zinc-100">
+              <h1
+                onClick={handleTitleClick}
+                className="mb-2 cursor-pointer select-none text-2xl font-semibold text-zinc-900 dark:text-zinc-100"
+              >
                 {tokenType === "erc721" ? "NFT Snapshot" : "Token Snapshot"}
               </h1>
               <p className="text-sm text-zinc-600 dark:text-zinc-400">
@@ -774,8 +1050,8 @@ function HomeContent() {
             )}
           </div>
 
-          {loading && (
-            <LoadingEntertainment elapsedTime={elapsedTime} />
+          {(loading || debugMode) && (
+            <LoadingEntertainment elapsedTime={displayTime} />
           )}
 
           {snapshot && !loading && (
@@ -970,7 +1246,72 @@ function HomeContent() {
               Envio HyperSync
             </a>
           </span>
+          <span>·</span>
+          <button
+            onClick={() => setDebugMode(!debugMode)}
+            className="cursor-pointer transition-colors hover:text-zinc-600 dark:hover:text-zinc-300"
+          >
+            {debugMode ? "Exit Debug" : "Debug"}
+          </button>
         </footer>
+
+        {/* Debug Panel */}
+        {debugMode && (
+          <div
+            className="fixed z-50 w-80 rounded-xl border border-zinc-300 bg-white p-4 shadow-xl dark:border-zinc-700 dark:bg-zinc-800"
+            style={{ left: debugPosition.x, top: debugPosition.y }}
+          >
+            <div
+              onMouseDown={handleMouseDown}
+              className="mb-3 flex cursor-move items-center justify-between"
+            >
+              <span className="select-none text-sm font-bold text-zinc-900 dark:text-zinc-100">
+                ⠿ Debug - {debugTime}s
+              </span>
+              <button
+                onClick={() => setDebugMode(false)}
+                className="cursor-pointer text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="mb-3">
+              <input
+                type="range"
+                min="0"
+                max="350"
+                value={debugTime}
+                onChange={(e) => setDebugTime(Number(e.target.value))}
+                className="w-full"
+              />
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {[
+                { label: "0s Start", time: 0 },
+                { label: "20s Extended", time: 20 },
+                { label: "50s Auto-play", time: 50 },
+                { label: "70s Colors", time: 70 },
+                { label: "100s Pink", time: 100 },
+                { label: "150s Minecraft", time: 150 },
+                { label: "200s Grass", time: 200 },
+                { label: "250s Achievement", time: 250 },
+                { label: "300s Clicker", time: 300 },
+              ].map(({ label, time }) => (
+                <button
+                  key={time}
+                  onClick={() => setDebugTime(time)}
+                  className={`cursor-pointer rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
+                    debugTime >= time
+                      ? "bg-purple-600 text-white"
+                      : "bg-zinc-100 text-zinc-700 hover:bg-zinc-200 dark:bg-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-600"
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
       </main>
     </div>
   );
