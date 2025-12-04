@@ -87,32 +87,22 @@ export default function About() {
                   {" "}- We query all Transfer events from the blockchain to reconstruct current ownership/balances
                 </li>
                 <li>
-                  <span className="font-medium text-zinc-900 dark:text-zinc-100">Generate Merkle Tree</span>
-                  {" "}- A merkle tree is generated for efficient on-chain verification
-                </li>
-                <li>
                   <span className="font-medium text-zinc-900 dark:text-zinc-100">Download & Use</span>
-                  {" "}- Export as CSV for airdrops or JSON with merkle proofs for claim contracts
+                  {" "}- Export as CSV for airdrops or further processing
                 </li>
               </ol>
             </section>
 
             <section>
               <h2 className="mb-3 text-lg font-medium text-zinc-900 dark:text-zinc-100">
-                Export Formats
+                Export Format
               </h2>
-              <div className="space-y-3 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
-                <div>
-                  <span className="font-medium text-zinc-900 dark:text-zinc-100">CSV Export</span>
-                  {" "}- Simple format for airdrops or manual processing. For ERC-721: tokenId and owner columns.
-                  For ERC-20: address and balance columns.
-                </div>
-                <div>
-                  <span className="font-medium text-zinc-900 dark:text-zinc-100">Merkle Tree JSON</span>
-                  {" "}- Complete merkle tree data including the root hash and individual proofs.
-                  Use this for building claim contracts where users can verify ownership/balances on-chain.
-                </div>
-              </div>
+              <p className="text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
+                <span className="font-medium text-zinc-900 dark:text-zinc-100">CSV Export</span>
+                {" "}- Simple format for airdrops or manual processing. For ERC-721: tokenId and owner columns.
+                For ERC-20: address and balance columns. You can generate merkle trees from this data
+                using standard libraries if needed for claim contracts.
+              </p>
             </section>
 
             <section>

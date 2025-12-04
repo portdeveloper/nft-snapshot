@@ -1,21 +1,11 @@
 "use client";
 
-import { useState, useMemo, useEffect, useCallback, Suspense } from "react";
+import { useState, useMemo, useEffect, useCallback, Suspense, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 
 type Network = "testnet" | "mainnet";
 type TokenType = "erc721" | "erc20";
-
-interface CachedCollection {
-  contract: string;
-  network: Network;
-  snapshotBlock: number;
-  merkleRoot: string;
-  totalNfts: number;
-  uniqueOwners: number;
-  updatedAt: string;
-}
 
 // ERC721 snapshot data
 interface ERC721SnapshotData {
@@ -23,8 +13,6 @@ interface ERC721SnapshotData {
   tokenType: "erc721";
   network: Network;
   snapshotBlock: number;
-  merkleRoot: string;
-  fromCache?: boolean;
   analytics: {
     totalNfts: number;
     uniqueOwners: number;
@@ -38,8 +26,6 @@ interface ERC20SnapshotData {
   tokenType: "erc20";
   network: Network;
   snapshotBlock: number;
-  merkleRoot: string;
-  fromCache?: boolean;
   analytics: {
     totalSupply: string;
     holders: number;
@@ -84,28 +70,6 @@ function CheckIcon({ className }: { className?: string }) {
       strokeLinejoin="round"
     >
       <polyline points="20 6 9 17 4 12" />
-    </svg>
-  );
-}
-
-function RefreshIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      className={className}
-      xmlns="http://www.w3.org/2000/svg"
-      width="14"
-      height="14"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
-      <path d="M3 3v5h5" />
-      <path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16" />
-      <path d="M16 16h5v5" />
     </svg>
   );
 }
@@ -171,45 +135,361 @@ function CopyableAddress({ address }: { address: string }) {
   return <CopyableText text={address} truncate />;
 }
 
-function formatTimeAgo(dateString: string): string {
-  const date = new Date(dateString);
-  const now = new Date();
-  const diffMs = now.getTime() - date.getTime();
-  const diffMins = Math.floor(diffMs / 60000);
-  const diffHours = Math.floor(diffMs / 3600000);
-  const diffDays = Math.floor(diffMs / 86400000);
-
-  if (diffMins < 1) return "just now";
-  if (diffMins < 60) return `${diffMins}m ago`;
-  if (diffHours < 24) return `${diffHours}h ago`;
-  return `${diffDays}d ago`;
-}
-
 // Format large numbers with commas for readability
 function formatWithCommas(value: string): string {
   return value.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
 }
 
-const SEARCH_HISTORY_KEY = "nft-snapshot-history";
+// Monad facts with links to documentation
+const MONAD_FACTS = [
+  {
+    fact: "Monad blocks are produced every 400ms - that's 2.5x faster than Ethereum!",
+    link: "https://docs.monad.xyz/developer-essentials/summary#timing-considerations",
+    linkText: "Learn about timing",
+  },
+  {
+    fact: "Monad achieves 500M gas/sec throughput - 33x more than Ethereum's 15M gas/sec.",
+    link: "https://docs.monad.xyz/developer-essentials/summary#gas-limits",
+    linkText: "Gas limits explained",
+  },
+  {
+    fact: "Smart contracts on Monad can be up to 128kb - 5x larger than Ethereum's 24.5kb limit!",
+    link: "https://docs.monad.xyz/developer-essentials/summary#smart-contracts",
+    linkText: "Contract limits",
+  },
+  {
+    fact: "Monad uses parallel execution - transactions run concurrently but appear sequential.",
+    link: "https://docs.monad.xyz/monad-arch/execution/parallel-execution",
+    linkText: "Parallel execution",
+  },
+  {
+    fact: "Blocks are finalized in just 800ms (2 blocks) - no more waiting for confirmations!",
+    link: "https://docs.monad.xyz/monad-arch/consensus/monad-bft",
+    linkText: "MonadBFT consensus",
+  },
+  {
+    fact: "Monad supports EIP-7702 for smart account delegation from EOAs.",
+    link: "https://docs.monad.xyz/developer-essentials/eip-7702",
+    linkText: "EIP-7702 guide",
+  },
+  {
+    fact: "All your favorite tools work: Foundry, Viem, Hardhat, Safe, Tenderly, and more!",
+    link: "https://docs.monad.xyz/developer-essentials/tooling-and-infra",
+    linkText: "Supported tooling",
+  },
+  {
+    fact: "Monad uses JIT compilation to execute smart contracts as native machine code.",
+    link: "https://docs.monad.xyz/monad-arch/execution/native-compilation",
+    linkText: "JIT compilation",
+  },
+];
+
+// Simple jumping game component
+function JumpingGame() {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [score, setScore] = useState(0);
+  const [gameOver, setGameOver] = useState(false);
+  const [gameStarted, setGameStarted] = useState(false);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    let animationId: number;
+    let playerY = 150;
+    let velocity = 0;
+    let isJumping = false;
+    let obstacles: { x: number; width: number; height: number; passed?: boolean }[] = [];
+    let frameCount = 0;
+    let currentScore = 0;
+    const gravity = 0.8;
+    const jumpForce = -14;
+    const groundY = 150;
+    const playerSize = 30;
+
+    const jump = () => {
+      if (!isJumping && gameStarted && !gameOver) {
+        velocity = jumpForce;
+        isJumping = true;
+      }
+      if (!gameStarted) {
+        setGameStarted(true);
+        setGameOver(false);
+        setScore(0);
+        currentScore = 0;
+        obstacles = [];
+      }
+      if (gameOver) {
+        setGameOver(false);
+        setGameStarted(true);
+        setScore(0);
+        currentScore = 0;
+        obstacles = [];
+        playerY = groundY;
+        velocity = 0;
+      }
+    };
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.code === "Space" || e.code === "ArrowUp") {
+        e.preventDefault();
+        jump();
+      }
+    };
+
+    const handleClick = () => jump();
+
+    canvas.addEventListener("click", handleClick);
+    window.addEventListener("keydown", handleKeyDown);
+
+    const gameLoop = () => {
+      ctx.fillStyle = "#18181b";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      // Ground
+      ctx.fillStyle = "#3f3f46";
+      ctx.fillRect(0, groundY + playerSize, canvas.width, 2);
+
+      if (!gameStarted) {
+        ctx.fillStyle = "#a1a1aa";
+        ctx.font = "14px system-ui";
+        ctx.textAlign = "center";
+        ctx.fillText("Click or press Space to start!", canvas.width / 2, 100);
+        ctx.fillStyle = "#836EF9";
+        ctx.fillRect(50, playerY, playerSize, playerSize);
+        animationId = requestAnimationFrame(gameLoop);
+        return;
+      }
+
+      if (gameOver) {
+        ctx.fillStyle = "#ef4444";
+        ctx.font = "bold 18px system-ui";
+        ctx.textAlign = "center";
+        ctx.fillText(`Game Over! Score: ${currentScore}`, canvas.width / 2, 80);
+        ctx.fillStyle = "#a1a1aa";
+        ctx.font = "14px system-ui";
+        ctx.fillText("Click or press Space to restart", canvas.width / 2, 105);
+        animationId = requestAnimationFrame(gameLoop);
+        return;
+      }
+
+      // Physics
+      velocity += gravity;
+      playerY += velocity;
+
+      if (playerY >= groundY) {
+        playerY = groundY;
+        velocity = 0;
+        isJumping = false;
+      }
+
+      // Player (purple square - Monad themed!)
+      ctx.fillStyle = "#836EF9";
+      ctx.fillRect(50, playerY, playerSize, playerSize);
+
+      // Spawn obstacles
+      frameCount++;
+      if (frameCount % 90 === 0) {
+        obstacles.push({
+          x: canvas.width,
+          width: 20 + Math.random() * 15,
+          height: 25 + Math.random() * 20,
+        });
+      }
+
+      // Update and draw obstacles
+      ctx.fillStyle = "#f97316";
+      obstacles = obstacles.filter((obs) => {
+        obs.x -= 5;
+        ctx.fillRect(obs.x, groundY + playerSize - obs.height, obs.width, obs.height);
+
+        // Collision detection
+        if (
+          50 < obs.x + obs.width &&
+          50 + playerSize > obs.x &&
+          playerY + playerSize > groundY + playerSize - obs.height
+        ) {
+          setGameOver(true);
+        }
+
+        // Score
+        if (obs.x + obs.width < 50 && !obs.passed) {
+          obs.passed = true;
+          currentScore++;
+          setScore(currentScore);
+        }
+
+        return obs.x > -obs.width;
+      });
+
+      // Score display
+      ctx.fillStyle = "#a1a1aa";
+      ctx.font = "14px system-ui";
+      ctx.textAlign = "left";
+      ctx.fillText(`Score: ${currentScore}`, 10, 25);
+
+      animationId = requestAnimationFrame(gameLoop);
+    };
+
+    gameLoop();
+
+    return () => {
+      cancelAnimationFrame(animationId);
+      canvas.removeEventListener("click", handleClick);
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [gameStarted, gameOver]);
+
+  return (
+    <div className="flex flex-col items-center">
+      <canvas
+        ref={canvasRef}
+        width={400}
+        height={200}
+        className="w-full max-w-[400px] rounded-lg border border-zinc-700 bg-zinc-900"
+      />
+      <p className="mt-2 text-xs text-zinc-500">Press Space or click to jump!</p>
+    </div>
+  );
+}
+
+// Loading entertainment component
+function LoadingEntertainment({ elapsedTime }: { elapsedTime: number }) {
+  const [currentFactIndex, setCurrentFactIndex] = useState(0);
+  const [activeTab, setActiveTab] = useState<"video" | "facts" | "game">("video");
+
+  // Rotate facts every 5 seconds
+  useEffect(() => {
+    if (elapsedTime < 20) return;
+    const interval = setInterval(() => {
+      setCurrentFactIndex((prev) => (prev + 1) % MONAD_FACTS.length);
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [elapsedTime]);
+
+  const showExtended = elapsedTime >= 20;
+
+  return (
+    <div className="mt-8">
+      <p className="mb-3 text-center text-sm text-zinc-500 dark:text-zinc-400">
+        {elapsedTime > 0 ? `Fetching... ${elapsedTime}s` : "Fetching..."}
+      </p>
+
+      {showExtended && (
+        <div className="mb-4 rounded-lg bg-amber-50 px-4 py-3 dark:bg-amber-900/20">
+          <p className="text-sm text-amber-700 dark:text-amber-300">
+            This collection has a lot of data! It might take 2-4 minutes to fetch everything.
+            Hang tight, or explore some Monad facts below!
+          </p>
+        </div>
+      )}
+
+      {showExtended && (
+        <div className="mb-4 flex items-center justify-center gap-2">
+          <button
+            onClick={() => setActiveTab("video")}
+            className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
+              activeTab === "video"
+                ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900"
+                : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-700"
+            }`}
+          >
+            Video
+          </button>
+          <button
+            onClick={() => setActiveTab("facts")}
+            className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
+              activeTab === "facts"
+                ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900"
+                : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-700"
+            }`}
+          >
+            Monad Facts
+          </button>
+          <button
+            onClick={() => setActiveTab("game")}
+            className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
+              activeTab === "game"
+                ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900"
+                : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-700"
+            }`}
+          >
+            Mini Game
+          </button>
+        </div>
+      )}
+
+      {(activeTab === "video" || !showExtended) && (
+        <div className="overflow-hidden rounded-xl">
+          <video
+            autoPlay
+            loop
+            muted
+            playsInline
+            preload="auto"
+            className="aspect-video w-full object-cover"
+            src="/loading.mp4"
+          />
+        </div>
+      )}
+
+      {activeTab === "facts" && showExtended && (
+        <div className="rounded-xl bg-zinc-100 p-6 dark:bg-zinc-800">
+          <div className="mb-4 flex items-center gap-2">
+            <span className="text-2xl">💡</span>
+            <span className="text-sm font-medium text-zinc-600 dark:text-zinc-300">
+              Did you know?
+            </span>
+          </div>
+          <p className="mb-4 text-lg font-medium text-zinc-900 dark:text-zinc-100">
+            {MONAD_FACTS[currentFactIndex].fact}
+          </p>
+          <a
+            href={MONAD_FACTS[currentFactIndex].link}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1 text-sm font-medium text-purple-600 hover:text-purple-700 dark:text-purple-400 dark:hover:text-purple-300"
+          >
+            {MONAD_FACTS[currentFactIndex].linkText}
+            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+            </svg>
+          </a>
+          <div className="mt-4 flex justify-center gap-1">
+            {MONAD_FACTS.map((_, i) => (
+              <button
+                key={i}
+                onClick={() => setCurrentFactIndex(i)}
+                className={`h-2 w-2 rounded-full transition-colors ${
+                  i === currentFactIndex
+                    ? "bg-purple-600 dark:bg-purple-400"
+                    : "bg-zinc-300 hover:bg-zinc-400 dark:bg-zinc-600 dark:hover:bg-zinc-500"
+                }`}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {activeTab === "game" && showExtended && (
+        <div className="rounded-xl bg-zinc-100 p-6 dark:bg-zinc-800">
+          <div className="mb-4 text-center">
+            <span className="text-sm font-medium text-zinc-600 dark:text-zinc-300">
+              Jump over the obstacles while you wait!
+            </span>
+          </div>
+          <JumpingGame />
+        </div>
+      )}
+    </div>
+  );
+}
+
 const NETWORK_KEY = "nft-snapshot-network";
 const TOKEN_TYPE_KEY = "nft-snapshot-token-type";
-
-function getSearchHistory(): string[] {
-  if (typeof window === "undefined") return [];
-  try {
-    const stored = localStorage.getItem(SEARCH_HISTORY_KEY);
-    return stored ? JSON.parse(stored) : [];
-  } catch {
-    return [];
-  }
-}
-
-function addToSearchHistory(address: string): void {
-  const normalized = address.toLowerCase();
-  const history = getSearchHistory().filter((a) => a !== normalized);
-  history.unshift(normalized); // Add to front
-  localStorage.setItem(SEARCH_HISTORY_KEY, JSON.stringify(history.slice(0, 20))); // Keep max 20
-}
 
 function getSavedNetwork(): Network {
   if (typeof window === "undefined") return "testnet";
@@ -244,20 +524,16 @@ function HomeContent() {
   const searchParams = useSearchParams();
   const [contractAddress, setContractAddress] = useState("");
   const [loading, setLoading] = useState(false);
-  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
   const [snapshot, setSnapshot] = useState<SnapshotData | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
-  const [collections, setCollections] = useState<CachedCollection[]>([]);
-  const [searchHistory, setSearchHistory] = useState<string[]>([]);
   const [initialLoad, setInitialLoad] = useState(true);
   const [network, setNetwork] = useState<Network>("testnet");
   const [tokenType, setTokenType] = useState<TokenType>("erc721");
   const [elapsedTime, setElapsedTime] = useState(0);
 
-  // Load search history, network, and token type from localStorage on mount
+  // Load network and token type from localStorage on mount
   useEffect(() => {
-    setSearchHistory(getSearchHistory());
     setNetwork(getSavedNetwork());
     setTokenType(getSavedTokenType());
   }, []);
@@ -288,39 +564,6 @@ function HomeContent() {
     setSnapshot(null); // Clear current snapshot when switching token types
   };
 
-  // Fetch cached collections only for addresses in search history (ERC721 only)
-  useEffect(() => {
-    if (searchHistory.length === 0 || tokenType === "erc20") {
-      setCollections([]);
-      return;
-    }
-
-    async function fetchCollections() {
-      try {
-        const response = await fetch(`/api/collections?network=${network}`);
-        if (response.ok) {
-          const data = await response.json();
-          const allCollections: CachedCollection[] = data.collections || [];
-          // Filter to only show collections in user's search history
-          const historySet = new Set(searchHistory);
-          const filtered = allCollections.filter((c) =>
-            historySet.has(c.contract.toLowerCase())
-          );
-          // Sort by search history order
-          filtered.sort((a, b) => {
-            const aIndex = searchHistory.indexOf(a.contract.toLowerCase());
-            const bIndex = searchHistory.indexOf(b.contract.toLowerCase());
-            return aIndex - bIndex;
-          });
-          setCollections(filtered);
-        }
-      } catch {
-        // Silently fail - collections are optional
-      }
-    }
-    fetchCollections();
-  }, [searchHistory, network, tokenType]);
-
   const filteredData = useMemo(() => {
     if (!snapshot) return [];
     if (!searchQuery.trim()) return snapshot.data;
@@ -342,7 +585,7 @@ function HomeContent() {
     }
   }, [snapshot, searchQuery]);
 
-  const handleFetch = useCallback(async (refresh = false, addressOverride?: string) => {
+  const handleFetch = useCallback(async (addressOverride?: string) => {
     const address = addressOverride || contractAddress;
 
     if (!address) {
@@ -363,16 +606,13 @@ function HomeContent() {
     router.push(`/?contract=${address}`, { scroll: false });
 
     setError("");
-    if (refresh) {
-      setRefreshing(true);
-    } else {
-      setLoading(true);
-      setSnapshot(null);
-    }
+    setLoading(true);
+    setSnapshot(null);
     setSearchQuery("");
 
     try {
-      const url = `/api/snapshot?contract=${address}&network=${network}&type=${tokenType}${refresh ? "&refresh=true" : ""}`;
+      const url = `/api/snapshot?contract=${address}&network=${network}&type=${tokenType}`;
+
       const response = await fetch(url);
 
       if (!response.ok) {
@@ -382,17 +622,10 @@ function HomeContent() {
 
       const data: SnapshotData = await response.json();
       setSnapshot(data);
-
-      // Add to search history and refresh history state (only for ERC721)
-      if (tokenType === "erc721") {
-        addToSearchHistory(address);
-        setSearchHistory(getSearchHistory());
-      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "An error occurred");
     } finally {
       setLoading(false);
-      setRefreshing(false);
     }
   }, [contractAddress, router, network, tokenType]);
 
@@ -402,7 +635,7 @@ function HomeContent() {
       const contractFromUrl = searchParams.get("contract");
       if (contractFromUrl && /^0x[a-fA-F0-9]{40}$/.test(contractFromUrl)) {
         setContractAddress(contractFromUrl);
-        handleFetch(false, contractFromUrl);
+        handleFetch(contractFromUrl);
       }
       setInitialLoad(false);
     }
@@ -416,13 +649,6 @@ function HomeContent() {
     );
   };
 
-  const handleDownloadMerkle = () => {
-    if (!snapshot) return;
-    window.open(
-      `/api/snapshot?contract=${snapshot.contract}&network=${network}&type=${snapshot.tokenType}&format=merkle`,
-      "_blank"
-    );
-  };
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-zinc-50 px-4 py-12 dark:bg-zinc-950">
@@ -527,7 +753,7 @@ function HomeContent() {
               <div className="flex items-center gap-2 text-xs text-zinc-500 dark:text-zinc-400">
                 <span>Try it out:</span>
                 <button
-                  onClick={() => handleFetch(false, network === "mainnet"
+                  onClick={() => handleFetch(network === "mainnet"
                     ? "0x9f8514cebee138b61806d4651f51d26c8098b463"
                     : "0x78eD9A576519024357aB06D9834266a04c9634b7"
                   )}
@@ -538,85 +764,22 @@ function HomeContent() {
               </div>
             )}
 
-            {/* Recent Searches - only show for ERC721 with cached data */}
-            {!snapshot && !loading && tokenType === "erc721" && collections.length > 0 && (
-              <div className="pt-2">
-                <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
-                  Recent searches
-                </p>
-                <div className="mt-3 space-y-2">
-                  {collections.map((collection) => (
-                    <button
-                      key={collection.contract}
-                      onClick={() => handleFetch(false, collection.contract)}
-                      className="group flex w-full cursor-pointer items-center justify-between rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-3 text-left transition-colors hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-800 dark:hover:bg-zinc-700"
-                    >
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate font-mono text-sm text-zinc-900 dark:text-zinc-100">
-                          {collection.contract}
-                        </p>
-                        <p className="mt-1 text-xs text-zinc-500 transition-colors dark:text-zinc-400 dark:group-hover:text-zinc-200">
-                          {collection.totalNfts.toLocaleString()} NFTs · {collection.uniqueOwners.toLocaleString()} owners · Block {collection.snapshotBlock.toLocaleString()}
-                        </p>
-                      </div>
-                      <span className="ml-3 flex-shrink-0 text-xs text-zinc-400 transition-colors dark:text-zinc-500 dark:group-hover:text-zinc-300">
-                        {formatTimeAgo(collection.updatedAt)}
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-
             {/* ERC20 info notice */}
             {!snapshot && !loading && tokenType === "erc20" && (
               <div className="rounded-lg bg-amber-50 px-4 py-3 dark:bg-amber-900/20">
                 <p className="text-sm text-amber-700 dark:text-amber-300">
-                  ERC20 snapshots are not cached and will be fetched fresh each time. Balances are shown as raw values (without decimal adjustment).
+                  Balances are shown as raw values (without decimal adjustment).
                 </p>
               </div>
             )}
           </div>
 
           {loading && (
-            <div className="mt-8">
-              <p className="mb-3 text-center text-sm text-zinc-500 dark:text-zinc-400">
-                {elapsedTime > 0 ? `Fetching... ${elapsedTime}s` : "Fetching..."}
-                {tokenType === "erc20" && elapsedTime > 30 && " (ERC20 tokens with many transfers can take a while)"}
-              </p>
-              <div className="overflow-hidden rounded-xl">
-                <video
-                  autoPlay
-                  loop
-                  muted
-                  playsInline
-                  preload="auto"
-                  className="aspect-video w-full object-cover"
-                  src="/loading.mp4"
-                />
-              </div>
-            </div>
+            <LoadingEntertainment elapsedTime={elapsedTime} />
           )}
 
           {snapshot && !loading && (
             <div className="mt-8 space-y-6">
-              {/* Cache indicator and refresh - only for ERC721 */}
-              {snapshot.fromCache && snapshot.tokenType === "erc721" && (
-                <div className="flex items-center justify-between rounded-lg bg-blue-50 px-4 py-3 dark:bg-blue-900/20">
-                  <p className="text-sm text-blue-700 dark:text-blue-300">
-                    Loaded from cache
-                  </p>
-                  <button
-                    onClick={() => handleFetch(true)}
-                    disabled={refreshing}
-                    className="flex cursor-pointer items-center gap-1.5 rounded-md bg-blue-100 px-3 py-1.5 text-xs font-medium text-blue-700 transition-colors hover:bg-blue-200 disabled:opacity-50 dark:bg-blue-800 dark:text-blue-200 dark:hover:bg-blue-700"
-                  >
-                    <RefreshIcon className={refreshing ? "animate-spin" : ""} />
-                    {refreshing ? "Refreshing..." : "Refresh"}
-                  </button>
-                </div>
-              )}
-
               {/* Analytics Cards - conditional based on token type */}
               {snapshot.tokenType === "erc721" ? (
                 <div className="grid grid-cols-3 gap-4">
@@ -675,14 +838,6 @@ function HomeContent() {
                   </div>
                 </div>
               )}
-
-              {/* Merkle Root */}
-              <div className="rounded-lg bg-zinc-50 p-4 dark:bg-zinc-800">
-                <p className="mb-1 text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
-                  Merkle Root
-                </p>
-                <CopyableText text={snapshot.merkleRoot} truncate={false} className="text-xs" />
-              </div>
 
               {/* Search and Preview */}
               <div>
@@ -784,21 +939,13 @@ function HomeContent() {
                 </div>
               </div>
 
-              {/* Download Buttons */}
-              <div className="flex gap-3">
-                <button
-                  onClick={handleDownloadCSV}
-                  className="flex-1 cursor-pointer rounded-lg bg-zinc-900 px-4 py-3 text-sm font-medium text-white transition-colors hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
-                >
-                  Download CSV
-                </button>
-                <button
-                  onClick={handleDownloadMerkle}
-                  className="flex-1 cursor-pointer rounded-lg border border-zinc-300 bg-white px-4 py-3 text-sm font-medium text-zinc-900 transition-colors hover:bg-zinc-50 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 dark:hover:bg-zinc-700"
-                >
-                  Download Merkle Tree
-                </button>
-              </div>
+              {/* Download Button */}
+              <button
+                onClick={handleDownloadCSV}
+                className="w-full cursor-pointer rounded-lg bg-zinc-900 px-4 py-3 text-sm font-medium text-white transition-colors hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
+              >
+                Download CSV
+              </button>
             </div>
           )}
         </div>

@@ -1,7 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { MerkleTree } from "merkletreejs";
-import keccak256 from "keccak256";
-import { getSnapshot, getOwnership, saveSnapshot, Network } from "@/app/lib/db";
+type Network = "testnet" | "mainnet";
 
 // Transfer(address indexed from, address indexed to, uint256 tokenId/value)
 // Same signature for both ERC721 and ERC20
@@ -18,7 +16,6 @@ const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 type TokenType = "erc721" | "erc20";
 
 function parseAddress(topic: string): string {
-  // Topics are 32 bytes, addresses are 20 bytes (40 hex chars)
   return "0x" + topic.slice(-40).toLowerCase();
 }
 
@@ -27,8 +24,6 @@ function parseTokenId(topic: string): string {
 }
 
 function parseValue(data: string): bigint | null {
-  // Data field contains the uint256 value (for ERC20)
-  // Return null for empty or invalid data
   if (!data || data === "0x" || data.length <= 2) {
     return null;
   }
@@ -37,24 +32,6 @@ function parseValue(data: string): bigint | null {
   } catch {
     return null;
   }
-}
-
-// Create a leaf for ERC721 merkle tree: keccak256(owner + tokenId)
-function createERC721Leaf(owner: string, tokenId: string): Buffer {
-  const ownerBytes = Buffer.from(owner.slice(2).padStart(40, "0"), "hex");
-  const tokenIdHex = BigInt(tokenId).toString(16).padStart(64, "0");
-  const tokenIdBytes = Buffer.from(tokenIdHex, "hex");
-  const packed = Buffer.concat([ownerBytes, tokenIdBytes]);
-  return keccak256(packed);
-}
-
-// Create a leaf for ERC20 merkle tree: keccak256(address + balance)
-function createERC20Leaf(address: string, balance: string): Buffer {
-  const addressBytes = Buffer.from(address.slice(2).padStart(40, "0"), "hex");
-  const balanceHex = BigInt(balance).toString(16).padStart(64, "0");
-  const balanceBytes = Buffer.from(balanceHex, "hex");
-  const packed = Buffer.concat([addressBytes, balanceBytes]);
-  return keccak256(packed);
 }
 
 // ERC721 log interface - tokenId is indexed (topic3)
@@ -100,21 +77,35 @@ async function queryHypersyncERC721(
     },
   };
 
-  const response = await fetch(`${HYPERSYNC_URLS[network]}/query`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${process.env.HYPERSYNC_BEARER_TOKEN}`,
-    },
-    body: JSON.stringify(query),
-  });
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 30000);
 
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`HyperSync error: ${response.status} - ${text}`);
+  try {
+    const response = await fetch(`${HYPERSYNC_URLS[network]}/query`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${process.env.HYPERSYNC_BEARER_TOKEN}`,
+      },
+      body: JSON.stringify(query),
+      signal: controller.signal,
+    });
+
+    clearTimeout(timeoutId);
+
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(`HyperSync error: ${response.status} - ${text}`);
+    }
+
+    return response.json();
+  } catch (error) {
+    clearTimeout(timeoutId);
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new Error("HyperSync request timed out after 30 seconds");
+    }
+    throw error;
   }
-
-  return response.json();
 }
 
 async function queryHypersyncERC20(
@@ -131,26 +122,39 @@ async function queryHypersyncERC20(
       },
     ],
     field_selection: {
-      // For ERC20, value is in data field (not indexed)
       log: ["topic0", "topic1", "topic2", "data"],
     },
   };
 
-  const response = await fetch(`${HYPERSYNC_URLS[network]}/query`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${process.env.HYPERSYNC_BEARER_TOKEN}`,
-    },
-    body: JSON.stringify(query),
-  });
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 30000);
 
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`HyperSync error: ${response.status} - ${text}`);
+  try {
+    const response = await fetch(`${HYPERSYNC_URLS[network]}/query`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${process.env.HYPERSYNC_BEARER_TOKEN}`,
+      },
+      body: JSON.stringify(query),
+      signal: controller.signal,
+    });
+
+    clearTimeout(timeoutId);
+
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(`HyperSync error: ${response.status} - ${text}`);
+    }
+
+    return response.json();
+  } catch (error) {
+    clearTimeout(timeoutId);
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new Error("HyperSync request timed out after 30 seconds");
+    }
+    throw error;
   }
-
-  return response.json();
 }
 
 async function getLatestBlock(network: Network): Promise<number> {
@@ -168,16 +172,37 @@ async function getLatestBlock(network: Network): Promise<number> {
   return data.height;
 }
 
-async function fetchERC721FromHypersync(contractAddress: string, network: Network) {
-  const latestBlock = await getLatestBlock(network);
+interface FetchOptions {
+  timeoutMs?: number; // undefined = no timeout (for CSV downloads)
+  maxIterations?: number;
+}
 
-  // Map to track current ownership: tokenId -> owner
+async function fetchERC721FromHypersync(
+  contractAddress: string,
+  network: Network,
+  options: FetchOptions = {}
+) {
+  const latestBlock = await getLatestBlock(network);
   const ownership = new Map<string, string>();
 
   let fromBlock = 0;
   let hasMore = true;
+  let iterations = 0;
+  const maxIterations = options.maxIterations || 10000;
+  const startTime = Date.now();
+  const timeoutMs = options.timeoutMs;
 
   while (hasMore) {
+    if (iterations >= maxIterations) {
+      console.warn(`ERC721 fetch hit iteration limit (${maxIterations}) for ${contractAddress}`);
+      break;
+    }
+    if (timeoutMs && Date.now() - startTime > timeoutMs) {
+      console.warn(`ERC721 fetch hit time limit (${timeoutMs}ms) for ${contractAddress}`);
+      break;
+    }
+
+    iterations++;
     const response = await queryHypersyncERC721(contractAddress, fromBlock, network);
 
     if (response.data && response.data.length > 0) {
@@ -205,7 +230,10 @@ async function fetchERC721FromHypersync(contractAddress: string, network: Networ
     }
   }
 
-  // Filter out burned tokens
+  const wasLimited = iterations >= maxIterations || (timeoutMs ? Date.now() - startTime > timeoutMs : false);
+  console.log(`ERC721 fetch completed: ${iterations} iterations, ${ownership.size} tokens, ${Date.now() - startTime}ms, limited: ${wasLimited}`);
+
+  // Filter out burned tokens and sort
   const activeOwnership: { tokenId: string; owner: string }[] = [];
   const uniqueOwners = new Set<string>();
 
@@ -221,64 +249,66 @@ async function fetchERC721FromHypersync(contractAddress: string, network: Networ
     }
   }
 
-  // Generate merkle tree
-  const leaves = activeOwnership.map(({ owner, tokenId }) =>
-    createERC721Leaf(owner, tokenId)
-  );
-  const merkleTree = new MerkleTree(leaves, keccak256, { sortPairs: true });
-  const merkleRoot = merkleTree.getHexRoot();
-
-  const ownershipWithProofs = activeOwnership.map(({ owner, tokenId }, index) => {
-    const leaf = leaves[index];
-    const proof = merkleTree.getHexProof(leaf);
-    return {
-      tokenId,
-      owner,
-      leaf: "0x" + leaf.toString("hex"),
-      proof,
-    };
-  });
-
   return {
     latestBlock,
-    merkleRoot,
     activeOwnership,
     uniqueOwnersCount: uniqueOwners.size,
-    ownershipWithProofs,
+    wasLimited,
   };
 }
 
-async function fetchERC20FromHypersync(contractAddress: string, network: Network) {
+async function fetchERC20FromHypersync(
+  contractAddress: string,
+  network: Network,
+  options: FetchOptions = {}
+) {
   const latestBlock = await getLatestBlock(network);
-
-  // Map to track balances: address -> balance (as bigint for precision)
   const balances = new Map<string, bigint>();
 
   let fromBlock = 0;
   let hasMore = true;
+  let iterations = 0;
+  let totalLogs = 0;
+  let validLogs = 0;
+  let skippedLogs = 0;
+  const maxIterations = options.maxIterations || 10000;
+  const startTime = Date.now();
+  const timeoutMs = options.timeoutMs;
 
   while (hasMore) {
+    if (iterations >= maxIterations) {
+      console.warn(`ERC20 fetch hit iteration limit (${maxIterations}) for ${contractAddress}`);
+      break;
+    }
+    if (timeoutMs && Date.now() - startTime > timeoutMs) {
+      console.warn(`ERC20 fetch hit time limit (${timeoutMs}ms) for ${contractAddress}`);
+      break;
+    }
+
+    iterations++;
     const response = await queryHypersyncERC20(contractAddress, fromBlock, network);
 
     if (response.data && response.data.length > 0) {
       for (const block of response.data) {
         if (block.logs) {
+          totalLogs += block.logs.length;
           for (const log of block.logs) {
-            if (log.topic1 && log.topic2 && log.data) {
+            if (log.topic1 && log.topic2) {
               const value = parseValue(log.data);
-              // Skip logs with invalid/empty data (not a valid ERC20 transfer)
-              if (value === null) continue;
+              if (value === null) {
+                skippedLogs++;
+                continue;
+              }
+              validLogs++;
 
               const from = parseAddress(log.topic1);
               const to = parseAddress(log.topic2);
 
-              // Subtract from sender (if not mint from zero address)
               if (from !== ZERO_ADDRESS) {
                 const currentFrom = balances.get(from) || 0n;
                 balances.set(from, currentFrom - value);
               }
 
-              // Add to receiver (if not burn to zero address)
               if (to !== ZERO_ADDRESS) {
                 const currentTo = balances.get(to) || 0n;
                 balances.set(to, currentTo + value);
@@ -300,10 +330,11 @@ async function fetchERC20FromHypersync(contractAddress: string, network: Network
     }
   }
 
-  // Filter out zero/negative balances and convert to array
-  const activeBalances: { address: string; balance: string }[] = [];
+  const wasLimited = iterations >= maxIterations || (timeoutMs ? Date.now() - startTime > timeoutMs : false);
+  console.log(`ERC20 fetch completed: ${iterations} iterations, ${totalLogs} logs (${validLogs} valid, ${skippedLogs} skipped), ${Date.now() - startTime}ms, limited: ${wasLimited}`);
 
-  // Sort by balance descending (largest holders first)
+  // Filter and sort by balance descending
+  const activeBalances: { address: string; balance: string }[] = [];
   const sortedEntries = Array.from(balances.entries())
     .filter(([, balance]) => balance > 0n)
     .sort((a, b) => (b[1] > a[1] ? 1 : b[1] < a[1] ? -1 : 0));
@@ -312,74 +343,47 @@ async function fetchERC20FromHypersync(contractAddress: string, network: Network
     activeBalances.push({ address, balance: balance.toString() });
   }
 
-  // Calculate total supply
   const totalSupply = sortedEntries.reduce((sum, [, bal]) => sum + bal, 0n);
-
-  // Generate merkle tree
-  const leaves = activeBalances.map(({ address, balance }) =>
-    createERC20Leaf(address, balance)
-  );
-  const merkleTree = new MerkleTree(leaves, keccak256, { sortPairs: true });
-  const merkleRoot = merkleTree.getHexRoot();
-
-  const balancesWithProofs = activeBalances.map(({ address, balance }, index) => {
-    const leaf = leaves[index];
-    const proof = merkleTree.getHexProof(leaf);
-    return {
-      address,
-      balance,
-      leaf: "0x" + leaf.toString("hex"),
-      proof,
-    };
-  });
 
   return {
     latestBlock,
-    merkleRoot,
     activeBalances,
     totalSupply: totalSupply.toString(),
     holdersCount: activeBalances.length,
-    balancesWithProofs,
+    wasLimited,
   };
 }
 
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams;
   const contractAddress = searchParams.get("contract");
-  const format = searchParams.get("format"); // 'csv', 'merkle'
-  const refresh = searchParams.get("refresh") === "true";
+  const format = searchParams.get("format");
   const networkParam = searchParams.get("network");
   const network: Network = networkParam === "mainnet" ? "mainnet" : "testnet";
   const typeParam = searchParams.get("type");
   const tokenType: TokenType = typeParam === "erc20" ? "erc20" : "erc721";
 
   if (!contractAddress) {
-    return NextResponse.json(
-      { error: "Missing contract address" },
-      { status: 400 }
-    );
+    return NextResponse.json({ error: "Missing contract address" }, { status: 400 });
   }
 
   if (!/^0x[a-fA-F0-9]{40}$/.test(contractAddress)) {
-    return NextResponse.json(
-      { error: "Invalid contract address format" },
-      { status: 400 }
-    );
+    return NextResponse.json({ error: "Invalid contract address format" }, { status: 400 });
   }
 
   try {
     // Handle ERC20 tokens (no caching)
     if (tokenType === "erc20") {
-      const result = await fetchERC20FromHypersync(contractAddress, network);
+      // No timeout - fetch complete data for both preview and CSV
+      const options: FetchOptions = {};
+      const result = await fetchERC20FromHypersync(contractAddress, network, options);
 
       if (format === "csv") {
         const csvRows = ["address,balance"];
         for (const { address, balance } of result.activeBalances) {
           csvRows.push(`${address},${balance}`);
         }
-        const csv = csvRows.join("\n");
-
-        return new NextResponse(csv, {
+        return new NextResponse(csvRows.join("\n"), {
           headers: {
             "Content-Type": "text/csv",
             "Content-Disposition": `attachment; filename="${contractAddress}-erc20-snapshot.csv"`,
@@ -387,103 +391,33 @@ export async function GET(request: NextRequest) {
         });
       }
 
-      if (format === "merkle") {
-        const merkleData = {
-          contract: contractAddress,
-          tokenType: "erc20",
-          snapshotBlock: result.latestBlock,
-          merkleRoot: result.merkleRoot,
-          totalLeaves: result.activeBalances.length,
-          leaves: result.balancesWithProofs,
-        };
-
-        return new NextResponse(JSON.stringify(merkleData, null, 2), {
-          headers: {
-            "Content-Type": "application/json",
-            "Content-Disposition": `attachment; filename="${contractAddress}-erc20-merkle.json"`,
-          },
-        });
-      }
+      // Preview response - limit to top 1000 holders
+      const MAX_PREVIEW = 1000;
+      const previewData = result.activeBalances.slice(0, MAX_PREVIEW);
 
       return NextResponse.json({
         contract: contractAddress,
         tokenType: "erc20",
         network,
         snapshotBlock: result.latestBlock,
-        merkleRoot: result.merkleRoot,
-        fromCache: false,
         analytics: {
           totalSupply: result.totalSupply,
           holders: result.holdersCount,
         },
-        data: result.activeBalances,
+        data: previewData,
       });
     }
 
-    // Handle ERC721 tokens (with caching)
-    let snapshotBlock: number;
-    let merkleRoot: string;
-    let activeOwnership: { tokenId: string; owner: string }[];
-    let uniqueOwnersCount: number;
-    let ownershipWithProofs: {
-      tokenId: string;
-      owner: string;
-      leaf: string;
-      proof: string[];
-    }[];
-    let fromCache = false;
-
-    const cachedSnapshot = !refresh ? await getSnapshot(contractAddress, network) : null;
-
-    const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
-    const isStale = cachedSnapshot
-      ? Date.now() - new Date(cachedSnapshot.updated_at).getTime() > CACHE_TTL_MS
-      : false;
-
-    if (cachedSnapshot && !isStale) {
-      const cachedOwnership = await getOwnership(cachedSnapshot.id);
-
-      snapshotBlock = Number(cachedSnapshot.snapshot_block);
-      merkleRoot = cachedSnapshot.merkle_root;
-      uniqueOwnersCount = cachedSnapshot.unique_owners;
-      activeOwnership = cachedOwnership.map((o) => ({
-        tokenId: o.token_id,
-        owner: o.owner,
-      }));
-      ownershipWithProofs = cachedOwnership.map((o) => ({
-        tokenId: o.token_id,
-        owner: o.owner,
-        leaf: o.leaf,
-        proof: o.proof,
-      }));
-      fromCache = true;
-    } else {
-      const result = await fetchERC721FromHypersync(contractAddress, network);
-      snapshotBlock = result.latestBlock;
-      merkleRoot = result.merkleRoot;
-      activeOwnership = result.activeOwnership;
-      uniqueOwnersCount = result.uniqueOwnersCount;
-      ownershipWithProofs = result.ownershipWithProofs;
-
-      await saveSnapshot(
-        contractAddress,
-        network,
-        snapshotBlock,
-        merkleRoot,
-        activeOwnership.length,
-        uniqueOwnersCount,
-        ownershipWithProofs
-      );
-    }
+    // Handle ERC721 tokens - always fetch fresh data
+    const options: FetchOptions = {};
+    const result = await fetchERC721FromHypersync(contractAddress, network, options);
 
     if (format === "csv") {
       const csvRows = ["tokenId,owner"];
-      for (const { tokenId, owner } of activeOwnership) {
+      for (const { tokenId, owner } of result.activeOwnership) {
         csvRows.push(`${tokenId},${owner}`);
       }
-      const csv = csvRows.join("\n");
-
-      return new NextResponse(csv, {
+      return new NextResponse(csvRows.join("\n"), {
         headers: {
           "Content-Type": "text/csv",
           "Content-Disposition": `attachment; filename="${contractAddress}-snapshot.csv"`,
@@ -491,36 +425,20 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    if (format === "merkle") {
-      const merkleData = {
-        contract: contractAddress,
-        tokenType: "erc721",
-        snapshotBlock,
-        merkleRoot,
-        totalLeaves: activeOwnership.length,
-        leaves: ownershipWithProofs,
-      };
-
-      return new NextResponse(JSON.stringify(merkleData, null, 2), {
-        headers: {
-          "Content-Type": "application/json",
-          "Content-Disposition": `attachment; filename="${contractAddress}-merkle.json"`,
-        },
-      });
-    }
+    // Preview response - limit to first 1000
+    const MAX_PREVIEW = 1000;
+    const previewData = result.activeOwnership.slice(0, MAX_PREVIEW);
 
     return NextResponse.json({
       contract: contractAddress,
       tokenType: "erc721",
       network,
-      snapshotBlock,
-      merkleRoot,
-      fromCache,
+      snapshotBlock: result.latestBlock,
       analytics: {
-        totalNfts: activeOwnership.length,
-        uniqueOwners: uniqueOwnersCount,
+        totalNfts: result.activeOwnership.length,
+        uniqueOwners: result.uniqueOwnersCount,
       },
-      data: activeOwnership,
+      data: previewData,
     });
   } catch (error) {
     console.error("Snapshot error:", error);
