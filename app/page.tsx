@@ -185,12 +185,6 @@ function formatTimeAgo(dateString: string): string {
   return `${diffDays}d ago`;
 }
 
-// Format large numbers with commas, handling BigInt-sized strings
-function formatBalance(balance: string): string {
-  // Insert commas every 3 digits from the right
-  return balance.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
-}
-
 const SEARCH_HISTORY_KEY = "nft-snapshot-history";
 const NETWORK_KEY = "nft-snapshot-network";
 const TOKEN_TYPE_KEY = "nft-snapshot-token-type";
@@ -638,8 +632,8 @@ function HomeContent() {
                     <p className="text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
                       Total Supply
                     </p>
-                    <p className="mt-1 truncate text-lg font-semibold text-zinc-900 dark:text-zinc-100" title={formatBalance(snapshot.analytics.totalSupply)}>
-                      {formatBalance(snapshot.analytics.totalSupply)}
+                    <p className="mt-1 truncate text-lg font-semibold text-zinc-900 dark:text-zinc-100" title={snapshot.analytics.totalSupply}>
+                      {snapshot.analytics.totalSupply}
                     </p>
                   </div>
                   <div className="rounded-lg bg-zinc-50 p-4 dark:bg-zinc-800">
@@ -759,7 +753,7 @@ function HomeContent() {
                               <CopyableAddress address={item.address} />
                             </td>
                             <td className="px-4 py-2.5 text-right font-mono text-zinc-900 dark:text-zinc-100">
-                              {formatBalance(item.balance)}
+                              {item.balance}
                             </td>
                           </tr>
                         ))
