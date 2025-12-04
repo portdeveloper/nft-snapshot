@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useCallback, Suspense } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 
 interface CachedCollection {
   contract: string;
@@ -157,7 +158,9 @@ function formatTimeAgo(dateString: string): string {
   return `${diffDays}d ago`;
 }
 
-export default function Home() {
+function HomeContent() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const [contractAddress, setContractAddress] = useState("");
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -166,6 +169,7 @@ export default function Home() {
   const [searchQuery, setSearchQuery] = useState("");
   const [collections, setCollections] = useState<CachedCollection[]>([]);
   const [loadingCollections, setLoadingCollections] = useState(true);
+  const [initialLoad, setInitialLoad] = useState(true);
 
   // Fetch cached collections on mount
   useEffect(() => {
@@ -197,7 +201,7 @@ export default function Home() {
     );
   }, [snapshot, searchQuery]);
 
-  const handleFetch = async (refresh = false, addressOverride?: string) => {
+  const handleFetch = useCallback(async (refresh = false, addressOverride?: string) => {
     const address = addressOverride || contractAddress;
 
     if (!address) {
@@ -213,6 +217,9 @@ export default function Home() {
     if (addressOverride) {
       setContractAddress(addressOverride);
     }
+
+    // Update URL with contract address
+    router.push(`/?contract=${address}`, { scroll: false });
 
     setError("");
     if (refresh) {
@@ -247,7 +254,19 @@ export default function Home() {
       setLoading(false);
       setRefreshing(false);
     }
-  };
+  }, [contractAddress, router]);
+
+  // Load contract from URL on initial mount
+  useEffect(() => {
+    if (initialLoad) {
+      const contractFromUrl = searchParams.get("contract");
+      if (contractFromUrl && /^0x[a-fA-F0-9]{40}$/.test(contractFromUrl)) {
+        setContractAddress(contractFromUrl);
+        handleFetch(false, contractFromUrl);
+      }
+      setInitialLoad(false);
+    }
+  }, [initialLoad, searchParams, handleFetch]);
 
   const handleDownloadCSV = () => {
     if (!snapshot) return;
@@ -517,5 +536,17 @@ export default function Home() {
         </div>
       </main>
     </div>
+  );
+}
+
+export default function Home() {
+  return (
+    <Suspense fallback={
+      <div className="flex min-h-screen items-center justify-center bg-zinc-50 dark:bg-zinc-950">
+        <div className="h-10 w-10 animate-spin rounded-full border-4 border-zinc-200 border-t-zinc-900 dark:border-zinc-700 dark:border-t-zinc-100" />
+      </div>
+    }>
+      <HomeContent />
+    </Suspense>
   );
 }
