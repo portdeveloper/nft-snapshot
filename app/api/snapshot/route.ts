@@ -7,7 +7,7 @@ import { getSnapshot, getOwnership, saveSnapshot } from "@/app/lib/db";
 const TRANSFER_EVENT_SIGNATURE =
   "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
 
-const HYPERSYNC_URL = "https://monad.hypersync.xyz";
+const HYPERSYNC_URL = "https://monad-testnet.hypersync.xyz";
 
 function parseAddress(topic: string): string {
   // Topics are 32 bytes, addresses are 20 bytes (40 hex chars)
