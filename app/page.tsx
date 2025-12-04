@@ -632,7 +632,7 @@ function HomeContent() {
                     <p className="text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
                       Total Supply
                     </p>
-                    <p className="mt-1 truncate text-lg font-semibold text-zinc-900 dark:text-zinc-100" title={snapshot.analytics.totalSupply}>
+                    <p className="mt-1 truncate text-xs font-semibold text-zinc-900 dark:text-zinc-100" title={snapshot.analytics.totalSupply}>
                       {snapshot.analytics.totalSupply}
                     </p>
                   </div>
