@@ -172,7 +172,6 @@ async function getLatestBlock(network: Network): Promise<number> {
 }
 
 interface FetchOptions {
-  timeoutMs?: number; // undefined = no timeout (for CSV downloads)
   maxIterations?: number;
 }
 
@@ -188,16 +187,9 @@ async function fetchERC721FromHypersync(
   let hasMore = true;
   let iterations = 0;
   const maxIterations = options.maxIterations || 10000;
-  const startTime = Date.now();
-  const timeoutMs = options.timeoutMs;
 
   while (hasMore) {
     if (iterations >= maxIterations) {
-      console.warn(`ERC721 fetch hit iteration limit (${maxIterations}) for ${contractAddress}`);
-      break;
-    }
-    if (timeoutMs && Date.now() - startTime > timeoutMs) {
-      console.warn(`ERC721 fetch hit time limit (${timeoutMs}ms) for ${contractAddress}`);
       break;
     }
 
@@ -229,9 +221,6 @@ async function fetchERC721FromHypersync(
     }
   }
 
-  const wasLimited = iterations >= maxIterations || (timeoutMs ? Date.now() - startTime > timeoutMs : false);
-  console.log(`ERC721 fetch completed: ${iterations} iterations, ${ownership.size} tokens, ${Date.now() - startTime}ms, limited: ${wasLimited}`);
-
   // Filter out burned tokens and sort
   const activeOwnership: { tokenId: string; owner: string }[] = [];
   const uniqueOwners = new Set<string>();
@@ -252,7 +241,6 @@ async function fetchERC721FromHypersync(
     latestBlock,
     activeOwnership,
     uniqueOwnersCount: uniqueOwners.size,
-    wasLimited,
   };
 }
 
@@ -267,20 +255,10 @@ async function fetchERC20FromHypersync(
   let fromBlock = 0;
   let hasMore = true;
   let iterations = 0;
-  let totalLogs = 0;
-  let validLogs = 0;
-  let skippedLogs = 0;
   const maxIterations = options.maxIterations || 10000;
-  const startTime = Date.now();
-  const timeoutMs = options.timeoutMs;
 
   while (hasMore) {
     if (iterations >= maxIterations) {
-      console.warn(`ERC20 fetch hit iteration limit (${maxIterations}) for ${contractAddress}`);
-      break;
-    }
-    if (timeoutMs && Date.now() - startTime > timeoutMs) {
-      console.warn(`ERC20 fetch hit time limit (${timeoutMs}ms) for ${contractAddress}`);
       break;
     }
 
@@ -290,15 +268,12 @@ async function fetchERC20FromHypersync(
     if (response.data && response.data.length > 0) {
       for (const block of response.data) {
         if (block.logs) {
-          totalLogs += block.logs.length;
           for (const log of block.logs) {
             if (log.topic1 && log.topic2) {
               const value = parseValue(log.data);
               if (value === null) {
-                skippedLogs++;
                 continue;
               }
-              validLogs++;
 
               const from = parseAddress(log.topic1);
               const to = parseAddress(log.topic2);
@@ -329,9 +304,6 @@ async function fetchERC20FromHypersync(
     }
   }
 
-  const wasLimited = iterations >= maxIterations || (timeoutMs ? Date.now() - startTime > timeoutMs : false);
-  console.log(`ERC20 fetch completed: ${iterations} iterations, ${totalLogs} logs (${validLogs} valid, ${skippedLogs} skipped), ${Date.now() - startTime}ms, limited: ${wasLimited}`);
-
   // Filter and sort by balance descending
   const activeBalances: { address: string; balance: string }[] = [];
   const sortedEntries = Array.from(balances.entries())
@@ -349,7 +321,6 @@ async function fetchERC20FromHypersync(
     activeBalances,
     totalSupply: totalSupply.toString(),
     holdersCount: activeBalances.length,
-    wasLimited,
   };
 }
 
@@ -440,7 +411,6 @@ export async function GET(request: NextRequest) {
       data: previewData,
     });
   } catch (error) {
-    console.error("Snapshot error:", error);
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Failed to fetch snapshot" },
       { status: 500 }
