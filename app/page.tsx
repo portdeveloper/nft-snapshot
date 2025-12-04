@@ -448,17 +448,17 @@ function HomeContent() {
                     <button
                       key={collection.contract}
                       onClick={() => handleFetch(false, collection.contract)}
-                      className="flex w-full cursor-pointer items-center justify-between rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-3 text-left transition-colors hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-800 dark:hover:bg-zinc-750"
+                      className="group flex w-full cursor-pointer items-center justify-between rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-3 text-left transition-colors hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-800 dark:hover:bg-zinc-700"
                     >
                       <div className="min-w-0 flex-1">
                         <p className="truncate font-mono text-sm text-zinc-900 dark:text-zinc-100">
                           {collection.contract}
                         </p>
-                        <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+                        <p className="mt-1 text-xs text-zinc-500 transition-colors dark:text-zinc-400 dark:group-hover:text-zinc-200">
                           {collection.totalNfts.toLocaleString()} NFTs · {collection.uniqueOwners.toLocaleString()} owners · Block {collection.snapshotBlock.toLocaleString()}
                         </p>
                       </div>
-                      <span className="ml-3 flex-shrink-0 text-xs text-zinc-400 dark:text-zinc-500">
+                      <span className="ml-3 flex-shrink-0 text-xs text-zinc-400 transition-colors dark:text-zinc-500 dark:group-hover:text-zinc-300">
                         {formatTimeAgo(collection.updatedAt)}
                       </span>
                     </button>

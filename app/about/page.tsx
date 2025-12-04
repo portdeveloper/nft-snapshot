@@ -45,7 +45,7 @@ export default function About() {
               </h2>
               <p className="text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
                 NFT Snapshot is an official Monad DevRel tool that allows projects to capture
-                a complete snapshot of NFT ownership for any ERC-721 collection on Monad testnet.
+                a complete snapshot of NFT ownership for any ERC-721 collection on Monad.
                 This is especially useful before testnet regenesis events, enabling projects to
                 redistribute NFTs to their original holders afterward.
               </p>
@@ -129,7 +129,7 @@ export default function About() {
                   Envio HyperSync
                 </a>
                 {" "}for lightning-fast blockchain data indexing on{" "}
-                <span className="font-medium text-zinc-900 dark:text-zinc-100">Monad Testnet</span>.
+                <span className="font-medium text-zinc-900 dark:text-zinc-100">Monad</span>.
                 HyperSync enables us to query all Transfer events for any NFT collection in seconds,
                 regardless of how many transfers have occurred.
               </p>
