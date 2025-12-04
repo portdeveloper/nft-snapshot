@@ -37,7 +37,6 @@ function parseValue(data: string): bigint | null {
 // ERC721 log interface - tokenId is indexed (topic3)
 interface HypersyncERC721Log {
   topic0: string;
-  topic1: string;
   topic2: string;
   topic3: string;
 }
@@ -73,7 +72,7 @@ async function queryHypersyncERC721(
       },
     ],
     field_selection: {
-      log: ["topic0", "topic1", "topic2", "topic3"],
+      log: ["topic0", "topic2", "topic3"],
     },
   };
 
