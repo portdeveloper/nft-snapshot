@@ -2,6 +2,7 @@
 
 import { useState, useMemo, useEffect, useCallback, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import Link from "next/link";
 
 interface CachedCollection {
   contract: string;
@@ -534,6 +535,28 @@ function HomeContent() {
             </div>
           )}
         </div>
+
+        {/* Footer */}
+        <footer className="mt-6 flex items-center justify-center gap-4 text-xs text-zinc-400 dark:text-zinc-500">
+          <Link
+            href="/about"
+            className="transition-colors hover:text-zinc-600 dark:hover:text-zinc-300"
+          >
+            How it works
+          </Link>
+          <span>·</span>
+          <span>
+            Powered by{" "}
+            <a
+              href="https://envio.dev"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="underline decoration-zinc-300 underline-offset-2 transition-colors hover:text-zinc-600 dark:decoration-zinc-600 dark:hover:text-zinc-300"
+            >
+              Envio HyperSync
+            </a>
+          </span>
+        </footer>
       </main>
     </div>
   );
