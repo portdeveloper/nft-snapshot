@@ -1,16 +1,20 @@
 import { sql } from "@vercel/postgres";
 
+export type Network = "testnet" | "mainnet";
+
 export async function initializeDatabase() {
   await sql`
     CREATE TABLE IF NOT EXISTS snapshots (
       id SERIAL PRIMARY KEY,
-      contract_address VARCHAR(42) NOT NULL UNIQUE,
+      contract_address VARCHAR(42) NOT NULL,
+      network VARCHAR(10) NOT NULL DEFAULT 'testnet',
       snapshot_block BIGINT NOT NULL,
       merkle_root VARCHAR(66) NOT NULL,
       total_nfts INTEGER NOT NULL,
       unique_owners INTEGER NOT NULL,
       created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-      updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(contract_address, network)
     )
   `;
 
@@ -30,13 +34,14 @@ export async function initializeDatabase() {
   `;
 
   await sql`
-    CREATE INDEX IF NOT EXISTS idx_snapshots_contract ON snapshots(contract_address)
+    CREATE INDEX IF NOT EXISTS idx_snapshots_contract_network ON snapshots(contract_address, network)
   `;
 }
 
 export interface StoredSnapshot {
   id: number;
   contract_address: string;
+  network: Network;
   snapshot_block: number;
   merkle_root: string;
   total_nfts: number;
@@ -53,11 +58,13 @@ export interface StoredOwnership {
 }
 
 export async function getSnapshot(
-  contractAddress: string
+  contractAddress: string,
+  network: Network = "testnet"
 ): Promise<StoredSnapshot | null> {
   const result = await sql<StoredSnapshot>`
     SELECT * FROM snapshots
     WHERE contract_address = ${contractAddress.toLowerCase()}
+    AND network = ${network}
   `;
   return result.rows[0] || null;
 }
@@ -75,6 +82,7 @@ export async function getOwnership(
 
 export async function saveSnapshot(
   contractAddress: string,
+  network: Network,
   snapshotBlock: number,
   merkleRoot: string,
   totalNfts: number,
@@ -83,9 +91,9 @@ export async function saveSnapshot(
 ): Promise<StoredSnapshot> {
   // Upsert snapshot
   const snapshotResult = await sql<StoredSnapshot>`
-    INSERT INTO snapshots (contract_address, snapshot_block, merkle_root, total_nfts, unique_owners)
-    VALUES (${contractAddress.toLowerCase()}, ${snapshotBlock}, ${merkleRoot}, ${totalNfts}, ${uniqueOwners})
-    ON CONFLICT (contract_address)
+    INSERT INTO snapshots (contract_address, network, snapshot_block, merkle_root, total_nfts, unique_owners)
+    VALUES (${contractAddress.toLowerCase()}, ${network}, ${snapshotBlock}, ${merkleRoot}, ${totalNfts}, ${uniqueOwners})
+    ON CONFLICT (contract_address, network)
     DO UPDATE SET
       snapshot_block = ${snapshotBlock},
       merkle_root = ${merkleRoot},
@@ -121,7 +129,15 @@ export async function saveSnapshot(
   return snapshot;
 }
 
-export async function getAllSnapshots(): Promise<StoredSnapshot[]> {
+export async function getAllSnapshots(network?: Network): Promise<StoredSnapshot[]> {
+  if (network) {
+    const result = await sql<StoredSnapshot>`
+      SELECT * FROM snapshots
+      WHERE network = ${network}
+      ORDER BY updated_at DESC
+    `;
+    return result.rows;
+  }
   const result = await sql<StoredSnapshot>`
     SELECT * FROM snapshots
     ORDER BY updated_at DESC
@@ -129,9 +145,10 @@ export async function getAllSnapshots(): Promise<StoredSnapshot[]> {
   return result.rows;
 }
 
-export async function deleteSnapshot(contractAddress: string): Promise<void> {
+export async function deleteSnapshot(contractAddress: string, network: Network = "testnet"): Promise<void> {
   await sql`
     DELETE FROM snapshots
     WHERE contract_address = ${contractAddress.toLowerCase()}
+    AND network = ${network}
   `;
 }

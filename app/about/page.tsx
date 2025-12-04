@@ -128,9 +128,10 @@ export default function About() {
                 >
                   Envio HyperSync
                 </a>
-                {" "}for lightning-fast blockchain data indexing. HyperSync enables us to query
-                all Transfer events for any NFT collection in seconds, regardless of how many
-                transfers have occurred.
+                {" "}for lightning-fast blockchain data indexing on{" "}
+                <span className="font-medium text-zinc-900 dark:text-zinc-100">Monad Testnet</span>.
+                HyperSync enables us to query all Transfer events for any NFT collection in seconds,
+                regardless of how many transfers have occurred.
               </p>
             </section>
           </div>

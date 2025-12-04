@@ -1,13 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { MerkleTree } from "merkletreejs";
 import keccak256 from "keccak256";
-import { getSnapshot, getOwnership, saveSnapshot } from "@/app/lib/db";
+import { getSnapshot, getOwnership, saveSnapshot, Network } from "@/app/lib/db";
 
 // ERC721 Transfer(address from, address to, uint256 tokenId)
 const TRANSFER_EVENT_SIGNATURE =
   "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
 
-const HYPERSYNC_URL = "https://monad-testnet.hypersync.xyz";
+const HYPERSYNC_URLS: Record<Network, string> = {
+  testnet: "https://monad-testnet.hypersync.xyz",
+  mainnet: "https://monad.hypersync.xyz",
+};
 
 function parseAddress(topic: string): string {
   // Topics are 32 bytes, addresses are 20 bytes (40 hex chars)
@@ -46,7 +49,8 @@ interface HypersyncResponse {
 
 async function queryHypersync(
   contractAddress: string,
-  fromBlock: number
+  fromBlock: number,
+  network: Network
 ): Promise<HypersyncResponse> {
   const query = {
     from_block: fromBlock,
@@ -61,7 +65,7 @@ async function queryHypersync(
     },
   };
 
-  const response = await fetch(`${HYPERSYNC_URL}/query`, {
+  const response = await fetch(`${HYPERSYNC_URLS[network]}/query`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -78,8 +82,8 @@ async function queryHypersync(
   return response.json();
 }
 
-async function getLatestBlock(): Promise<number> {
-  const response = await fetch(`${HYPERSYNC_URL}/height`, {
+async function getLatestBlock(network: Network): Promise<number> {
+  const response = await fetch(`${HYPERSYNC_URLS[network]}/height`, {
     headers: {
       Authorization: `Bearer ${process.env.HYPERSYNC_BEARER_TOKEN}`,
     },
@@ -93,8 +97,8 @@ async function getLatestBlock(): Promise<number> {
   return data.height;
 }
 
-async function fetchFromHypersync(contractAddress: string) {
-  const latestBlock = await getLatestBlock();
+async function fetchFromHypersync(contractAddress: string, network: Network) {
+  const latestBlock = await getLatestBlock(network);
 
   // Map to track current ownership: tokenId -> owner
   const ownership = new Map<string, string>();
@@ -103,7 +107,7 @@ async function fetchFromHypersync(contractAddress: string) {
   let hasMore = true;
 
   while (hasMore) {
-    const response = await queryHypersync(contractAddress, fromBlock);
+    const response = await queryHypersync(contractAddress, fromBlock, network);
 
     // Process all data blocks
     if (response.data && response.data.length > 0) {
@@ -186,6 +190,8 @@ export async function GET(request: NextRequest) {
   const contractAddress = searchParams.get("contract");
   const format = searchParams.get("format"); // 'csv', 'merkle'
   const refresh = searchParams.get("refresh") === "true";
+  const networkParam = searchParams.get("network");
+  const network: Network = networkParam === "mainnet" ? "mainnet" : "testnet";
 
   if (!contractAddress) {
     return NextResponse.json(
@@ -216,7 +222,7 @@ export async function GET(request: NextRequest) {
     let fromCache = false;
 
     // Check database cache first (unless refresh is requested)
-    const cachedSnapshot = !refresh ? await getSnapshot(contractAddress) : null;
+    const cachedSnapshot = !refresh ? await getSnapshot(contractAddress, network) : null;
 
     // Check if cache is stale (older than 1 hour)
     const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
@@ -243,7 +249,7 @@ export async function GET(request: NextRequest) {
       fromCache = true;
     } else {
       // Fetch from HyperSync
-      const result = await fetchFromHypersync(contractAddress);
+      const result = await fetchFromHypersync(contractAddress, network);
       snapshotBlock = result.latestBlock;
       merkleRoot = result.merkleRoot;
       activeOwnership = result.activeOwnership;
@@ -253,6 +259,7 @@ export async function GET(request: NextRequest) {
       // Save to database
       await saveSnapshot(
         contractAddress,
+        network,
         snapshotBlock,
         merkleRoot,
         activeOwnership.length,
@@ -298,6 +305,7 @@ export async function GET(request: NextRequest) {
     // Return JSON with analytics and merkle root
     return NextResponse.json({
       contract: contractAddress,
+      network,
       snapshotBlock,
       merkleRoot,
       fromCache,

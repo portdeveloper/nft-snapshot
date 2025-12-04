@@ -4,8 +4,11 @@ import { useState, useMemo, useEffect, useCallback, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 
+type Network = "testnet" | "mainnet";
+
 interface CachedCollection {
   contract: string;
+  network: Network;
   snapshotBlock: number;
   merkleRoot: string;
   totalNfts: number;
@@ -15,6 +18,7 @@ interface CachedCollection {
 
 interface SnapshotData {
   contract: string;
+  network: Network;
   snapshotBlock: number;
   merkleRoot: string;
   fromCache?: boolean;
@@ -160,6 +164,7 @@ function formatTimeAgo(dateString: string): string {
 }
 
 const SEARCH_HISTORY_KEY = "nft-snapshot-history";
+const NETWORK_KEY = "nft-snapshot-network";
 
 function getSearchHistory(): string[] {
   if (typeof window === "undefined") return [];
@@ -178,6 +183,20 @@ function addToSearchHistory(address: string): void {
   localStorage.setItem(SEARCH_HISTORY_KEY, JSON.stringify(history.slice(0, 20))); // Keep max 20
 }
 
+function getSavedNetwork(): Network {
+  if (typeof window === "undefined") return "testnet";
+  try {
+    const stored = localStorage.getItem(NETWORK_KEY);
+    return stored === "mainnet" ? "mainnet" : "testnet";
+  } catch {
+    return "testnet";
+  }
+}
+
+function saveNetwork(network: Network): void {
+  localStorage.setItem(NETWORK_KEY, network);
+}
+
 function HomeContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -190,11 +209,20 @@ function HomeContent() {
   const [collections, setCollections] = useState<CachedCollection[]>([]);
   const [searchHistory, setSearchHistory] = useState<string[]>([]);
   const [initialLoad, setInitialLoad] = useState(true);
+  const [network, setNetwork] = useState<Network>("testnet");
 
-  // Load search history from localStorage on mount
+  // Load search history and network from localStorage on mount
   useEffect(() => {
     setSearchHistory(getSearchHistory());
+    setNetwork(getSavedNetwork());
   }, []);
+
+  // Save network to localStorage when it changes
+  const handleNetworkChange = (newNetwork: Network) => {
+    setNetwork(newNetwork);
+    saveNetwork(newNetwork);
+    setSnapshot(null); // Clear current snapshot when switching networks
+  };
 
   // Fetch cached collections only for addresses in search history
   useEffect(() => {
@@ -205,7 +233,7 @@ function HomeContent() {
 
     async function fetchCollections() {
       try {
-        const response = await fetch("/api/collections");
+        const response = await fetch(`/api/collections?network=${network}`);
         if (response.ok) {
           const data = await response.json();
           const allCollections: CachedCollection[] = data.collections || [];
@@ -227,7 +255,7 @@ function HomeContent() {
       }
     }
     fetchCollections();
-  }, [searchHistory]);
+  }, [searchHistory, network]);
 
   const filteredData = useMemo(() => {
     if (!snapshot) return [];
@@ -271,7 +299,7 @@ function HomeContent() {
     setSearchQuery("");
 
     try {
-      const url = `/api/snapshot?contract=${address}${refresh ? "&refresh=true" : ""}`;
+      const url = `/api/snapshot?contract=${address}&network=${network}${refresh ? "&refresh=true" : ""}`;
       const response = await fetch(url);
 
       if (!response.ok) {
@@ -291,7 +319,7 @@ function HomeContent() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [contractAddress, router]);
+  }, [contractAddress, router, network]);
 
   // Load contract from URL on initial mount
   useEffect(() => {
@@ -308,7 +336,7 @@ function HomeContent() {
   const handleDownloadCSV = () => {
     if (!snapshot) return;
     window.open(
-      `/api/snapshot?contract=${snapshot.contract}&format=csv`,
+      `/api/snapshot?contract=${snapshot.contract}&network=${network}&format=csv`,
       "_blank"
     );
   };
@@ -316,7 +344,7 @@ function HomeContent() {
   const handleDownloadMerkle = () => {
     if (!snapshot) return;
     window.open(
-      `/api/snapshot?contract=${snapshot.contract}&format=merkle`,
+      `/api/snapshot?contract=${snapshot.contract}&network=${network}&format=merkle`,
       "_blank"
     );
   };
@@ -325,12 +353,38 @@ function HomeContent() {
     <div className="flex min-h-screen items-center justify-center bg-zinc-50 px-4 py-12 dark:bg-zinc-950">
       <main className="w-full max-w-2xl">
         <div className="rounded-2xl bg-white p-8 shadow-sm dark:bg-zinc-900">
-          <h1 className="mb-2 text-2xl font-semibold text-zinc-900 dark:text-zinc-100">
-            NFT Snapshot
-          </h1>
-          <p className="mb-6 text-sm text-zinc-600 dark:text-zinc-400">
-            Get a snapshot of all NFT holders for any collection on Monad
-          </p>
+          <div className="mb-6 flex items-start justify-between">
+            <div>
+              <h1 className="mb-2 text-2xl font-semibold text-zinc-900 dark:text-zinc-100">
+                NFT Snapshot
+              </h1>
+              <p className="text-sm text-zinc-600 dark:text-zinc-400">
+                Get a snapshot of all NFT holders for any collection on Monad
+              </p>
+            </div>
+            <div className="flex items-center gap-1 rounded-lg bg-zinc-100 p-1 dark:bg-zinc-800">
+              <button
+                onClick={() => handleNetworkChange("testnet")}
+                className={`cursor-pointer rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
+                  network === "testnet"
+                    ? "bg-white text-zinc-900 shadow-sm dark:bg-zinc-700 dark:text-zinc-100"
+                    : "text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-200"
+                }`}
+              >
+                Testnet
+              </button>
+              <button
+                onClick={() => handleNetworkChange("mainnet")}
+                className={`cursor-pointer rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
+                  network === "mainnet"
+                    ? "bg-white text-zinc-900 shadow-sm dark:bg-zinc-700 dark:text-zinc-100"
+                    : "text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-200"
+                }`}
+              >
+                Mainnet
+              </button>
+            </div>
+          </div>
 
           <div className="space-y-4">
             <div>
