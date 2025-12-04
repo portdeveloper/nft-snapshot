@@ -419,6 +419,22 @@ function HomeContent() {
               <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
             )}
 
+            {/* Example contract */}
+            {!snapshot && !loading && (
+              <div className="flex items-center gap-2 text-xs text-zinc-500 dark:text-zinc-400">
+                <span>Try it out:</span>
+                <button
+                  onClick={() => handleFetch(false, network === "mainnet"
+                    ? "0x9f8514cebee138b61806d4651f51d26c8098b463"
+                    : "0x78eD9A576519024357aB06D9834266a04c9634b7"
+                  )}
+                  className="cursor-pointer font-medium text-zinc-700 underline decoration-zinc-300 underline-offset-2 transition-colors hover:text-zinc-900 hover:decoration-zinc-500 dark:text-zinc-300 dark:decoration-zinc-600 dark:hover:text-zinc-100 dark:hover:decoration-zinc-400"
+                >
+                  The Daks
+                </button>
+              </div>
+            )}
+
             {/* Recent Searches - only show if user has search history with cached data */}
             {!snapshot && !loading && collections.length > 0 && (
               <div className="pt-2">
