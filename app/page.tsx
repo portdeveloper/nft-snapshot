@@ -477,8 +477,8 @@ function HomeContent() {
 
                 <div className="max-h-[500px] overflow-auto rounded-lg border border-zinc-200 dark:border-zinc-700">
                   <table className="w-full text-sm">
-                    <thead className="sticky top-0">
-                      <tr className="bg-zinc-50 dark:bg-zinc-800">
+                    <thead className="sticky top-0 z-10 bg-zinc-50 dark:bg-zinc-800">
+                      <tr>
                         <th className="px-4 py-2.5 text-left font-medium text-zinc-600 dark:text-zinc-400">
                           Token ID
                         </th>
