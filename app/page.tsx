@@ -2,43 +2,20 @@
 
 import { useState, useMemo, useEffect } from "react";
 
-const HISTORY_KEY = "nft-snapshot-history";
-const MAX_HISTORY = 5;
-
-interface HistoryItem {
-  address: string;
-  timestamp: number;
-}
-
-function getHistory(): HistoryItem[] {
-  if (typeof window === "undefined") return [];
-  try {
-    const stored = localStorage.getItem(HISTORY_KEY);
-    return stored ? JSON.parse(stored) : [];
-  } catch {
-    return [];
-  }
-}
-
-function addToHistory(address: string) {
-  const history = getHistory().filter(
-    (item) => item.address.toLowerCase() !== address.toLowerCase()
-  );
-  history.unshift({ address: address.toLowerCase(), timestamp: Date.now() });
-  localStorage.setItem(
-    HISTORY_KEY,
-    JSON.stringify(history.slice(0, MAX_HISTORY))
-  );
-}
-
-function clearHistory() {
-  localStorage.removeItem(HISTORY_KEY);
+interface CachedCollection {
+  contract: string;
+  snapshotBlock: number;
+  merkleRoot: string;
+  totalNfts: number;
+  uniqueOwners: number;
+  updatedAt: string;
 }
 
 interface SnapshotData {
   contract: string;
   snapshotBlock: number;
   merkleRoot: string;
+  fromCache?: boolean;
   analytics: {
     totalNfts: number;
     uniqueOwners: number;
@@ -81,6 +58,28 @@ function CheckIcon({ className }: { className?: string }) {
       strokeLinejoin="round"
     >
       <polyline points="20 6 9 17 4 12" />
+    </svg>
+  );
+}
+
+function RefreshIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      xmlns="http://www.w3.org/2000/svg"
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+      <path d="M3 3v5h5" />
+      <path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16" />
+      <path d="M16 16h5v5" />
     </svg>
   );
 }
@@ -144,16 +143,46 @@ function CopyableAddress({ address }: { address: string }) {
   return <CopyableText text={address} truncate />;
 }
 
+function formatTimeAgo(dateString: string): string {
+  const date = new Date(dateString);
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffMins = Math.floor(diffMs / 60000);
+  const diffHours = Math.floor(diffMs / 3600000);
+  const diffDays = Math.floor(diffMs / 86400000);
+
+  if (diffMins < 1) return "just now";
+  if (diffMins < 60) return `${diffMins}m ago`;
+  if (diffHours < 24) return `${diffHours}h ago`;
+  return `${diffDays}d ago`;
+}
+
 export default function Home() {
   const [contractAddress, setContractAddress] = useState("");
   const [loading, setLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
   const [snapshot, setSnapshot] = useState<SnapshotData | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
-  const [history, setHistory] = useState<HistoryItem[]>([]);
+  const [collections, setCollections] = useState<CachedCollection[]>([]);
+  const [loadingCollections, setLoadingCollections] = useState(true);
 
+  // Fetch cached collections on mount
   useEffect(() => {
-    setHistory(getHistory());
+    async function fetchCollections() {
+      try {
+        const response = await fetch("/api/collections");
+        if (response.ok) {
+          const data = await response.json();
+          setCollections(data.collections || []);
+        }
+      } catch {
+        // Silently fail - collections are optional
+      } finally {
+        setLoadingCollections(false);
+      }
+    }
+    fetchCollections();
   }, []);
 
   const filteredData = useMemo(() => {
@@ -168,7 +197,7 @@ export default function Home() {
     );
   }, [snapshot, searchQuery]);
 
-  const handleFetch = async () => {
+  const handleFetch = async (refresh = false) => {
     if (!contractAddress) {
       setError("Please enter a contract address");
       return;
@@ -180,14 +209,17 @@ export default function Home() {
     }
 
     setError("");
-    setLoading(true);
-    setSnapshot(null);
+    if (refresh) {
+      setRefreshing(true);
+    } else {
+      setLoading(true);
+      setSnapshot(null);
+    }
     setSearchQuery("");
 
     try {
-      const response = await fetch(
-        `/api/snapshot?contract=${contractAddress}`
-      );
+      const url = `/api/snapshot?contract=${contractAddress}${refresh ? "&refresh=true" : ""}`;
+      const response = await fetch(url);
 
       if (!response.ok) {
         const data = await response.json();
@@ -196,12 +228,18 @@ export default function Home() {
 
       const data: SnapshotData = await response.json();
       setSnapshot(data);
-      addToHistory(contractAddress);
-      setHistory(getHistory());
+
+      // Refresh collections list
+      const collectionsResponse = await fetch("/api/collections");
+      if (collectionsResponse.ok) {
+        const collectionsData = await collectionsResponse.json();
+        setCollections(collectionsData.collections || []);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "An error occurred");
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   };
 
@@ -252,7 +290,7 @@ export default function Home() {
                   className="flex-1 rounded-lg border border-zinc-200 bg-white px-4 py-2.5 text-sm text-zinc-900 placeholder-zinc-400 focus:border-zinc-400 focus:outline-none focus:ring-1 focus:ring-zinc-400 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100 dark:placeholder-zinc-500 dark:focus:border-zinc-500 dark:focus:ring-zinc-500"
                 />
                 <button
-                  onClick={handleFetch}
+                  onClick={() => handleFetch()}
                   disabled={loading}
                   className="min-w-[100px] cursor-pointer rounded-lg bg-zinc-900 px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
                 >
@@ -265,36 +303,43 @@ export default function Home() {
               <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
             )}
 
-            {/* Search History */}
-            {!snapshot && !loading && history.length > 0 && (
+            {/* Cached Collections */}
+            {!snapshot && !loading && (
               <div className="pt-2">
-                <div className="flex items-center justify-between">
-                  <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
-                    Recent searches
+                <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
+                  {loadingCollections ? "Loading collections..." : "Cached collections"}
+                </p>
+                {!loadingCollections && collections.length === 0 && (
+                  <p className="mt-2 text-sm text-zinc-400 dark:text-zinc-500">
+                    No collections cached yet. Search for a contract to get started.
                   </p>
-                  <button
-                    onClick={() => {
-                      clearHistory();
-                      setHistory([]);
-                    }}
-                    className="cursor-pointer text-xs text-zinc-400 hover:text-zinc-600 dark:text-zinc-500 dark:hover:text-zinc-300"
-                  >
-                    Clear
-                  </button>
-                </div>
-                <div className="mt-2 flex flex-wrap gap-2">
-                  {history.map((item) => (
-                    <button
-                      key={item.address}
-                      onClick={() => {
-                        setContractAddress(item.address);
-                      }}
-                      className="cursor-pointer rounded-md bg-zinc-100 px-3 py-1.5 font-mono text-xs text-zinc-700 transition-colors hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
-                    >
-                      {item.address.slice(0, 6)}...{item.address.slice(-4)}
-                    </button>
-                  ))}
-                </div>
+                )}
+                {collections.length > 0 && (
+                  <div className="mt-3 space-y-2">
+                    {collections.map((collection) => (
+                      <button
+                        key={collection.contract}
+                        onClick={() => {
+                          setContractAddress(collection.contract);
+                          handleFetch();
+                        }}
+                        className="flex w-full cursor-pointer items-center justify-between rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-3 text-left transition-colors hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-800 dark:hover:bg-zinc-750"
+                      >
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate font-mono text-sm text-zinc-900 dark:text-zinc-100">
+                            {collection.contract}
+                          </p>
+                          <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+                            {collection.totalNfts.toLocaleString()} NFTs · {collection.uniqueOwners.toLocaleString()} owners · Block {collection.snapshotBlock.toLocaleString()}
+                          </p>
+                        </div>
+                        <span className="ml-3 flex-shrink-0 text-xs text-zinc-400 dark:text-zinc-500">
+                          {formatTimeAgo(collection.updatedAt)}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -310,6 +355,23 @@ export default function Home() {
 
           {snapshot && !loading && (
             <div className="mt-8 space-y-6">
+              {/* Cache indicator and refresh */}
+              {snapshot.fromCache && (
+                <div className="flex items-center justify-between rounded-lg bg-blue-50 px-4 py-3 dark:bg-blue-900/20">
+                  <p className="text-sm text-blue-700 dark:text-blue-300">
+                    Loaded from cache
+                  </p>
+                  <button
+                    onClick={() => handleFetch(true)}
+                    disabled={refreshing}
+                    className="flex cursor-pointer items-center gap-1.5 rounded-md bg-blue-100 px-3 py-1.5 text-xs font-medium text-blue-700 transition-colors hover:bg-blue-200 disabled:opacity-50 dark:bg-blue-800 dark:text-blue-200 dark:hover:bg-blue-700"
+                  >
+                    <RefreshIcon className={refreshing ? "animate-spin" : ""} />
+                    {refreshing ? "Refreshing..." : "Refresh"}
+                  </button>
+                </div>
+              )}
+
               {/* Analytics Cards */}
               <div className="grid grid-cols-3 gap-4">
                 <div className="rounded-lg bg-zinc-50 p-4 dark:bg-zinc-800">

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { MerkleTree } from "merkletreejs";
 import keccak256 from "keccak256";
+import { getSnapshot, getOwnership, saveSnapshot } from "@/app/lib/db";
 
 // ERC721 Transfer(address from, address to, uint256 tokenId)
 const TRANSFER_EVENT_SIGNATURE =
@@ -92,10 +93,99 @@ async function getLatestBlock(): Promise<number> {
   return data.height;
 }
 
+async function fetchFromHypersync(contractAddress: string) {
+  const latestBlock = await getLatestBlock();
+
+  // Map to track current ownership: tokenId -> owner
+  const ownership = new Map<string, string>();
+
+  let fromBlock = 0;
+  let hasMore = true;
+
+  while (hasMore) {
+    const response = await queryHypersync(contractAddress, fromBlock);
+
+    // Process all data blocks
+    if (response.data && response.data.length > 0) {
+      for (const block of response.data) {
+        if (block.logs) {
+          for (const log of block.logs) {
+            if (log.topic2 && log.topic3) {
+              const to = parseAddress(log.topic2);
+              const tokenId = parseTokenId(log.topic3);
+
+              // Update ownership - transfers always update the owner
+              ownership.set(tokenId, to);
+            }
+          }
+        }
+      }
+    }
+
+    // Check if there's more data
+    if (response.next_block && response.next_block > fromBlock) {
+      fromBlock = response.next_block;
+    } else {
+      hasMore = false;
+    }
+
+    // Safety: if we got no data blocks, stop
+    if (!response.data?.length && !response.next_block) {
+      hasMore = false;
+    }
+  }
+
+  // Filter out burned tokens (sent to zero address)
+  const zeroAddress = "0x0000000000000000000000000000000000000000";
+  const activeOwnership: { tokenId: string; owner: string }[] = [];
+  const uniqueOwners = new Set<string>();
+
+  // Sort by tokenId numerically
+  const sortedTokenIds = Array.from(ownership.keys()).sort(
+    (a, b) => Number(BigInt(a) - BigInt(b))
+  );
+
+  for (const tokenId of sortedTokenIds) {
+    const owner = ownership.get(tokenId)!;
+    if (owner !== zeroAddress) {
+      activeOwnership.push({ tokenId, owner });
+      uniqueOwners.add(owner);
+    }
+  }
+
+  // Generate merkle tree
+  const leaves = activeOwnership.map(({ owner, tokenId }) =>
+    createLeaf(owner, tokenId)
+  );
+  const merkleTree = new MerkleTree(leaves, keccak256, { sortPairs: true });
+  const merkleRoot = merkleTree.getHexRoot();
+
+  // Build ownership with proofs
+  const ownershipWithProofs = activeOwnership.map(({ owner, tokenId }, index) => {
+    const leaf = leaves[index];
+    const proof = merkleTree.getHexProof(leaf);
+    return {
+      tokenId,
+      owner,
+      leaf: "0x" + leaf.toString("hex"),
+      proof,
+    };
+  });
+
+  return {
+    latestBlock,
+    merkleRoot,
+    activeOwnership,
+    uniqueOwnersCount: uniqueOwners.size,
+    ownershipWithProofs,
+  };
+}
+
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams;
   const contractAddress = searchParams.get("contract");
   const format = searchParams.get("format"); // 'csv', 'merkle'
+  const refresh = searchParams.get("refresh") === "true";
 
   if (!contractAddress) {
     return NextResponse.json(
@@ -113,72 +203,60 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    // Get the latest block for reference
-    const latestBlock = await getLatestBlock();
+    let snapshotBlock: number;
+    let merkleRoot: string;
+    let activeOwnership: { tokenId: string; owner: string }[];
+    let uniqueOwnersCount: number;
+    let ownershipWithProofs: {
+      tokenId: string;
+      owner: string;
+      leaf: string;
+      proof: string[];
+    }[];
+    let fromCache = false;
 
-    // Map to track current ownership: tokenId -> owner
-    const ownership = new Map<string, string>();
+    // Check database cache first (unless refresh is requested)
+    if (!refresh) {
+      const cachedSnapshot = await getSnapshot(contractAddress);
+      if (cachedSnapshot) {
+        const cachedOwnership = await getOwnership(cachedSnapshot.id);
 
-    let fromBlock = 0;
-    let hasMore = true;
-
-    while (hasMore) {
-      const response = await queryHypersync(contractAddress, fromBlock);
-
-      // Process all data blocks
-      if (response.data && response.data.length > 0) {
-        for (const block of response.data) {
-          if (block.logs) {
-            for (const log of block.logs) {
-              if (log.topic2 && log.topic3) {
-                const to = parseAddress(log.topic2);
-                const tokenId = parseTokenId(log.topic3);
-
-                // Update ownership - transfers always update the owner
-                ownership.set(tokenId, to);
-              }
-            }
-          }
-        }
-      }
-
-      // Check if there's more data
-      if (response.next_block && response.next_block > fromBlock) {
-        fromBlock = response.next_block;
-      } else {
-        hasMore = false;
-      }
-
-      // Safety: if we got no data blocks, stop
-      if (!response.data?.length && !response.next_block) {
-        hasMore = false;
+        snapshotBlock = Number(cachedSnapshot.snapshot_block);
+        merkleRoot = cachedSnapshot.merkle_root;
+        uniqueOwnersCount = cachedSnapshot.unique_owners;
+        activeOwnership = cachedOwnership.map((o) => ({
+          tokenId: o.token_id,
+          owner: o.owner,
+        }));
+        ownershipWithProofs = cachedOwnership.map((o) => ({
+          tokenId: o.token_id,
+          owner: o.owner,
+          leaf: o.leaf,
+          proof: o.proof,
+        }));
+        fromCache = true;
       }
     }
 
-    // Filter out burned tokens (sent to zero address)
-    const zeroAddress = "0x0000000000000000000000000000000000000000";
-    const activeOwnership: { tokenId: string; owner: string }[] = [];
-    const uniqueOwners = new Set<string>();
+    // If not in cache or refresh requested, fetch from HyperSync
+    if (!fromCache) {
+      const result = await fetchFromHypersync(contractAddress);
+      snapshotBlock = result.latestBlock;
+      merkleRoot = result.merkleRoot;
+      activeOwnership = result.activeOwnership;
+      uniqueOwnersCount = result.uniqueOwnersCount;
+      ownershipWithProofs = result.ownershipWithProofs;
 
-    // Sort by tokenId numerically
-    const sortedTokenIds = Array.from(ownership.keys()).sort(
-      (a, b) => Number(BigInt(a) - BigInt(b))
-    );
-
-    for (const tokenId of sortedTokenIds) {
-      const owner = ownership.get(tokenId)!;
-      if (owner !== zeroAddress) {
-        activeOwnership.push({ tokenId, owner });
-        uniqueOwners.add(owner);
-      }
+      // Save to database
+      await saveSnapshot(
+        contractAddress,
+        snapshotBlock,
+        merkleRoot,
+        activeOwnership.length,
+        uniqueOwnersCount,
+        ownershipWithProofs
+      );
     }
-
-    // Generate merkle tree
-    const leaves = activeOwnership.map(({ owner, tokenId }) =>
-      createLeaf(owner, tokenId)
-    );
-    const merkleTree = new MerkleTree(leaves, keccak256, { sortPairs: true });
-    const merkleRoot = merkleTree.getHexRoot();
 
     // If CSV format requested, return CSV
     if (format === "csv") {
@@ -200,19 +278,10 @@ export async function GET(request: NextRequest) {
     if (format === "merkle") {
       const merkleData = {
         contract: contractAddress,
-        snapshotBlock: latestBlock,
+        snapshotBlock,
         merkleRoot,
         totalLeaves: activeOwnership.length,
-        leaves: activeOwnership.map(({ owner, tokenId }, index) => {
-          const leaf = leaves[index];
-          const proof = merkleTree.getHexProof(leaf);
-          return {
-            tokenId,
-            owner,
-            leaf: "0x" + leaf.toString("hex"),
-            proof,
-          };
-        }),
+        leaves: ownershipWithProofs,
       };
 
       return new NextResponse(JSON.stringify(merkleData, null, 2), {
@@ -226,11 +295,12 @@ export async function GET(request: NextRequest) {
     // Return JSON with analytics and merkle root
     return NextResponse.json({
       contract: contractAddress,
-      snapshotBlock: latestBlock,
+      snapshotBlock,
       merkleRoot,
+      fromCache,
       analytics: {
         totalNfts: activeOwnership.length,
-        uniqueOwners: uniqueOwners.size,
+        uniqueOwners: uniqueOwnersCount,
       },
       data: activeOwnership,
     });
