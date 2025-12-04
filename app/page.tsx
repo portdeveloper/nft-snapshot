@@ -185,6 +185,11 @@ function formatTimeAgo(dateString: string): string {
   return `${diffDays}d ago`;
 }
 
+// Format large numbers with commas for readability
+function formatWithCommas(value: string): string {
+  return value.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+}
+
 const SEARCH_HISTORY_KEY = "nft-snapshot-history";
 const NETWORK_KEY = "nft-snapshot-network";
 const TOKEN_TYPE_KEY = "nft-snapshot-token-type";
@@ -633,7 +638,7 @@ function HomeContent() {
                       Total Supply
                     </p>
                     <p className="mt-1 overflow-x-auto whitespace-nowrap font-mono text-sm font-semibold text-zinc-900 dark:text-zinc-100">
-                      {snapshot.analytics.totalSupply}
+                      {formatWithCommas(snapshot.analytics.totalSupply)}
                     </p>
                   </div>
                   <div className="grid grid-cols-2 gap-4">
