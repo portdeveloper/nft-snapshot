@@ -197,15 +197,21 @@ export default function Home() {
     );
   }, [snapshot, searchQuery]);
 
-  const handleFetch = async (refresh = false) => {
-    if (!contractAddress) {
+  const handleFetch = async (refresh = false, addressOverride?: string) => {
+    const address = addressOverride || contractAddress;
+
+    if (!address) {
       setError("Please enter a contract address");
       return;
     }
 
-    if (!/^0x[a-fA-F0-9]{40}$/.test(contractAddress)) {
+    if (!/^0x[a-fA-F0-9]{40}$/.test(address)) {
       setError("Invalid contract address format");
       return;
+    }
+
+    if (addressOverride) {
+      setContractAddress(addressOverride);
     }
 
     setError("");
@@ -218,7 +224,7 @@ export default function Home() {
     setSearchQuery("");
 
     try {
-      const url = `/api/snapshot?contract=${contractAddress}${refresh ? "&refresh=true" : ""}`;
+      const url = `/api/snapshot?contract=${address}${refresh ? "&refresh=true" : ""}`;
       const response = await fetch(url);
 
       if (!response.ok) {
@@ -319,10 +325,7 @@ export default function Home() {
                     {collections.map((collection) => (
                       <button
                         key={collection.contract}
-                        onClick={() => {
-                          setContractAddress(collection.contract);
-                          handleFetch();
-                        }}
+                        onClick={() => handleFetch(false, collection.contract)}
                         className="flex w-full cursor-pointer items-center justify-between rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-3 text-left transition-colors hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-800 dark:hover:bg-zinc-750"
                       >
                         <div className="min-w-0 flex-1">
