@@ -627,30 +627,32 @@ function HomeContent() {
                   </div>
                 </div>
               ) : (
-                <div className="grid grid-cols-3 gap-4">
+                <div className="space-y-4">
                   <div className="rounded-lg bg-zinc-50 p-4 dark:bg-zinc-800">
                     <p className="text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
                       Total Supply
                     </p>
-                    <p className="mt-1 truncate text-xs font-semibold text-zinc-900 dark:text-zinc-100" title={snapshot.analytics.totalSupply}>
+                    <p className="mt-1 overflow-x-auto whitespace-nowrap font-mono text-sm font-semibold text-zinc-900 dark:text-zinc-100">
                       {snapshot.analytics.totalSupply}
                     </p>
                   </div>
-                  <div className="rounded-lg bg-zinc-50 p-4 dark:bg-zinc-800">
-                    <p className="text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
-                      Holders
-                    </p>
-                    <p className="mt-1 text-2xl font-semibold text-zinc-900 dark:text-zinc-100">
-                      {snapshot.analytics.holders.toLocaleString()}
-                    </p>
-                  </div>
-                  <div className="rounded-lg bg-zinc-50 p-4 dark:bg-zinc-800">
-                    <p className="text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
-                      Snapshot Block
-                    </p>
-                    <p className="mt-1 text-2xl font-semibold text-zinc-900 dark:text-zinc-100">
-                      {snapshot.snapshotBlock.toLocaleString()}
-                    </p>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="rounded-lg bg-zinc-50 p-4 dark:bg-zinc-800">
+                      <p className="text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+                        Holders
+                      </p>
+                      <p className="mt-1 text-2xl font-semibold text-zinc-900 dark:text-zinc-100">
+                        {snapshot.analytics.holders.toLocaleString()}
+                      </p>
+                    </div>
+                    <div className="rounded-lg bg-zinc-50 p-4 dark:bg-zinc-800">
+                      <p className="text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+                        Snapshot Block
+                      </p>
+                      <p className="mt-1 text-2xl font-semibold text-zinc-900 dark:text-zinc-100">
+                        {snapshot.snapshotBlock.toLocaleString()}
+                      </p>
+                    </div>
                   </div>
                 </div>
               )}
