@@ -93,9 +93,11 @@ function RefreshIcon({ className }: { className?: string }) {
 function CopyableText({
   text,
   truncate = true,
+  className = "",
 }: {
   text: string;
   truncate?: boolean;
+  className?: string;
 }) {
   const [copied, setCopied] = useState(false);
   const [showTooltip, setShowTooltip] = useState(false);
@@ -116,7 +118,7 @@ function CopyableText({
         onClick={handleCopy}
         onMouseEnter={() => setShowTooltip(true)}
         onMouseLeave={() => setShowTooltip(false)}
-        className="group flex cursor-pointer items-center gap-1.5 rounded px-1.5 py-0.5 font-mono text-zinc-600 transition-colors hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+        className={`group flex cursor-pointer items-center gap-1.5 rounded px-1.5 py-0.5 font-mono text-zinc-600 transition-colors hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200 ${className}`}
       >
         <span>{displayed}</span>
         {copied ? (
@@ -534,23 +536,10 @@ function HomeContent() {
 
               {/* Merkle Root */}
               <div className="rounded-lg bg-zinc-50 p-4 dark:bg-zinc-800">
-                <p className="text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+                <p className="mb-1 text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
                   Merkle Root
                 </p>
-                <div className="mt-1 flex items-center">
-                  <code className="block w-full break-all rounded bg-zinc-100 px-2 py-1.5 font-mono text-sm text-zinc-800 dark:bg-zinc-700 dark:text-zinc-200">
-                    {snapshot.merkleRoot}
-                  </code>
-                  <button
-                    onClick={async () => {
-                      await navigator.clipboard.writeText(snapshot.merkleRoot);
-                    }}
-                    className="ml-2 flex-shrink-0 cursor-pointer rounded p-1.5 text-zinc-500 transition-colors hover:bg-zinc-200 hover:text-zinc-700 dark:hover:bg-zinc-600 dark:hover:text-zinc-300"
-                    title="Copy merkle root"
-                  >
-                    <CopyIcon />
-                  </button>
-                </div>
+                <CopyableText text={snapshot.merkleRoot} truncate={false} className="text-xs" />
               </div>
 
               {/* Search and Preview */}
