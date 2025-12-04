@@ -26,9 +26,17 @@ function parseTokenId(topic: string): string {
   return BigInt(topic).toString();
 }
 
-function parseValue(data: string): bigint {
+function parseValue(data: string): bigint | null {
   // Data field contains the uint256 value (for ERC20)
-  return BigInt(data);
+  // Return null for empty or invalid data
+  if (!data || data === "0x" || data.length <= 2) {
+    return null;
+  }
+  try {
+    return BigInt(data);
+  } catch {
+    return null;
+  }
 }
 
 // Create a leaf for ERC721 merkle tree: keccak256(owner + tokenId)
@@ -257,9 +265,12 @@ async function fetchERC20FromHypersync(contractAddress: string, network: Network
         if (block.logs) {
           for (const log of block.logs) {
             if (log.topic1 && log.topic2 && log.data) {
+              const value = parseValue(log.data);
+              // Skip logs with invalid/empty data (not a valid ERC20 transfer)
+              if (value === null) continue;
+
               const from = parseAddress(log.topic1);
               const to = parseAddress(log.topic2);
-              const value = parseValue(log.data);
 
               // Subtract from sender (if not mint from zero address)
               if (from !== ZERO_ADDRESS) {
