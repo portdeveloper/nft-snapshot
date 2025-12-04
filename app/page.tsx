@@ -159,6 +159,25 @@ function formatTimeAgo(dateString: string): string {
   return `${diffDays}d ago`;
 }
 
+const SEARCH_HISTORY_KEY = "nft-snapshot-history";
+
+function getSearchHistory(): string[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const stored = localStorage.getItem(SEARCH_HISTORY_KEY);
+    return stored ? JSON.parse(stored) : [];
+  } catch {
+    return [];
+  }
+}
+
+function addToSearchHistory(address: string): void {
+  const normalized = address.toLowerCase();
+  const history = getSearchHistory().filter((a) => a !== normalized);
+  history.unshift(normalized); // Add to front
+  localStorage.setItem(SEARCH_HISTORY_KEY, JSON.stringify(history.slice(0, 20))); // Keep max 20
+}
+
 function HomeContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -169,26 +188,46 @@ function HomeContent() {
   const [snapshot, setSnapshot] = useState<SnapshotData | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [collections, setCollections] = useState<CachedCollection[]>([]);
-  const [loadingCollections, setLoadingCollections] = useState(true);
+  const [searchHistory, setSearchHistory] = useState<string[]>([]);
   const [initialLoad, setInitialLoad] = useState(true);
 
-  // Fetch cached collections on mount
+  // Load search history from localStorage on mount
   useEffect(() => {
+    setSearchHistory(getSearchHistory());
+  }, []);
+
+  // Fetch cached collections only for addresses in search history
+  useEffect(() => {
+    if (searchHistory.length === 0) {
+      setCollections([]);
+      return;
+    }
+
     async function fetchCollections() {
       try {
         const response = await fetch("/api/collections");
         if (response.ok) {
           const data = await response.json();
-          setCollections(data.collections || []);
+          const allCollections: CachedCollection[] = data.collections || [];
+          // Filter to only show collections in user's search history
+          const historySet = new Set(searchHistory);
+          const filtered = allCollections.filter((c) =>
+            historySet.has(c.contract.toLowerCase())
+          );
+          // Sort by search history order
+          filtered.sort((a, b) => {
+            const aIndex = searchHistory.indexOf(a.contract.toLowerCase());
+            const bIndex = searchHistory.indexOf(b.contract.toLowerCase());
+            return aIndex - bIndex;
+          });
+          setCollections(filtered);
         }
       } catch {
         // Silently fail - collections are optional
-      } finally {
-        setLoadingCollections(false);
       }
     }
     fetchCollections();
-  }, []);
+  }, [searchHistory]);
 
   const filteredData = useMemo(() => {
     if (!snapshot) return [];
@@ -243,12 +282,9 @@ function HomeContent() {
       const data: SnapshotData = await response.json();
       setSnapshot(data);
 
-      // Refresh collections list
-      const collectionsResponse = await fetch("/api/collections");
-      if (collectionsResponse.ok) {
-        const collectionsData = await collectionsResponse.json();
-        setCollections(collectionsData.collections || []);
-      }
+      // Add to search history and refresh history state
+      addToSearchHistory(address);
+      setSearchHistory(getSearchHistory());
     } catch (err) {
       setError(err instanceof Error ? err.message : "An error occurred");
     } finally {
@@ -329,50 +365,53 @@ function HomeContent() {
               <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
             )}
 
-            {/* Cached Collections */}
-            {!snapshot && !loading && (
+            {/* Recent Searches - only show if user has search history with cached data */}
+            {!snapshot && !loading && collections.length > 0 && (
               <div className="pt-2">
                 <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
-                  {loadingCollections ? "Loading collections..." : "Cached collections"}
+                  Recent searches
                 </p>
-                {!loadingCollections && collections.length === 0 && (
-                  <p className="mt-2 text-sm text-zinc-400 dark:text-zinc-500">
-                    No collections cached yet. Search for a contract to get started.
-                  </p>
-                )}
-                {collections.length > 0 && (
-                  <div className="mt-3 space-y-2">
-                    {collections.map((collection) => (
-                      <button
-                        key={collection.contract}
-                        onClick={() => handleFetch(false, collection.contract)}
-                        className="flex w-full cursor-pointer items-center justify-between rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-3 text-left transition-colors hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-800 dark:hover:bg-zinc-750"
-                      >
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate font-mono text-sm text-zinc-900 dark:text-zinc-100">
-                            {collection.contract}
-                          </p>
-                          <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-                            {collection.totalNfts.toLocaleString()} NFTs · {collection.uniqueOwners.toLocaleString()} owners · Block {collection.snapshotBlock.toLocaleString()}
-                          </p>
-                        </div>
-                        <span className="ml-3 flex-shrink-0 text-xs text-zinc-400 dark:text-zinc-500">
-                          {formatTimeAgo(collection.updatedAt)}
-                        </span>
-                      </button>
-                    ))}
-                  </div>
-                )}
+                <div className="mt-3 space-y-2">
+                  {collections.map((collection) => (
+                    <button
+                      key={collection.contract}
+                      onClick={() => handleFetch(false, collection.contract)}
+                      className="flex w-full cursor-pointer items-center justify-between rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-3 text-left transition-colors hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-800 dark:hover:bg-zinc-750"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate font-mono text-sm text-zinc-900 dark:text-zinc-100">
+                          {collection.contract}
+                        </p>
+                        <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+                          {collection.totalNfts.toLocaleString()} NFTs · {collection.uniqueOwners.toLocaleString()} owners · Block {collection.snapshotBlock.toLocaleString()}
+                        </p>
+                      </div>
+                      <span className="ml-3 flex-shrink-0 text-xs text-zinc-400 dark:text-zinc-500">
+                        {formatTimeAgo(collection.updatedAt)}
+                      </span>
+                    </button>
+                  ))}
+                </div>
               </div>
             )}
           </div>
 
           {loading && (
-            <div className="mt-8 flex flex-col items-center justify-center py-12">
-              <div className="h-10 w-10 animate-spin rounded-full border-4 border-zinc-200 border-t-zinc-900 dark:border-zinc-700 dark:border-t-zinc-100" />
-              <p className="mt-4 text-sm text-zinc-500 dark:text-zinc-400">
-                Fetching snapshot data...
+            <div className="mt-8">
+              <p className="mb-3 text-center text-sm text-zinc-500 dark:text-zinc-400">
+                This can take up to 10 seconds. Enjoy the Minecraft parkour video.
               </p>
+              <div className="overflow-hidden rounded-xl">
+                <video
+                  autoPlay
+                  loop
+                  muted
+                  playsInline
+                  preload="auto"
+                  className="aspect-video w-full object-cover"
+                  src="/loading.mp4"
+                />
+              </div>
             </div>
           )}
 
@@ -565,8 +604,20 @@ function HomeContent() {
 export default function Home() {
   return (
     <Suspense fallback={
-      <div className="flex min-h-screen items-center justify-center bg-zinc-50 dark:bg-zinc-950">
-        <div className="h-10 w-10 animate-spin rounded-full border-4 border-zinc-200 border-t-zinc-900 dark:border-zinc-700 dark:border-t-zinc-100" />
+      <div className="flex min-h-screen items-center justify-center bg-zinc-50 px-4 dark:bg-zinc-950">
+        <div className="w-full max-w-2xl">
+          <div className="overflow-hidden rounded-2xl bg-zinc-900">
+            <video
+              autoPlay
+              loop
+              muted
+              playsInline
+              preload="auto"
+              className="aspect-video w-full object-cover"
+              src="/loading.mp4"
+            />
+          </div>
+        </div>
       </div>
     }>
       <HomeContent />
