@@ -216,30 +216,27 @@ export async function GET(request: NextRequest) {
     let fromCache = false;
 
     // Check database cache first (unless refresh is requested)
-    if (!refresh) {
-      const cachedSnapshot = await getSnapshot(contractAddress);
-      if (cachedSnapshot) {
-        const cachedOwnership = await getOwnership(cachedSnapshot.id);
+    const cachedSnapshot = !refresh ? await getSnapshot(contractAddress) : null;
 
-        snapshotBlock = Number(cachedSnapshot.snapshot_block);
-        merkleRoot = cachedSnapshot.merkle_root;
-        uniqueOwnersCount = cachedSnapshot.unique_owners;
-        activeOwnership = cachedOwnership.map((o) => ({
-          tokenId: o.token_id,
-          owner: o.owner,
-        }));
-        ownershipWithProofs = cachedOwnership.map((o) => ({
-          tokenId: o.token_id,
-          owner: o.owner,
-          leaf: o.leaf,
-          proof: o.proof,
-        }));
-        fromCache = true;
-      }
-    }
+    if (cachedSnapshot) {
+      const cachedOwnership = await getOwnership(cachedSnapshot.id);
 
-    // If not in cache or refresh requested, fetch from HyperSync
-    if (!fromCache) {
+      snapshotBlock = Number(cachedSnapshot.snapshot_block);
+      merkleRoot = cachedSnapshot.merkle_root;
+      uniqueOwnersCount = cachedSnapshot.unique_owners;
+      activeOwnership = cachedOwnership.map((o) => ({
+        tokenId: o.token_id,
+        owner: o.owner,
+      }));
+      ownershipWithProofs = cachedOwnership.map((o) => ({
+        tokenId: o.token_id,
+        owner: o.owner,
+        leaf: o.leaf,
+        proof: o.proof,
+      }));
+      fromCache = true;
+    } else {
+      // Fetch from HyperSync
       const result = await fetchFromHypersync(contractAddress);
       snapshotBlock = result.latestBlock;
       merkleRoot = result.merkleRoot;
