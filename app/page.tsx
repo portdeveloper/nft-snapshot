@@ -253,6 +253,7 @@ function HomeContent() {
   const [initialLoad, setInitialLoad] = useState(true);
   const [network, setNetwork] = useState<Network>("testnet");
   const [tokenType, setTokenType] = useState<TokenType>("erc721");
+  const [elapsedTime, setElapsedTime] = useState(0);
 
   // Load search history, network, and token type from localStorage on mount
   useEffect(() => {
@@ -260,6 +261,18 @@ function HomeContent() {
     setNetwork(getSavedNetwork());
     setTokenType(getSavedTokenType());
   }, []);
+
+  // Timer for elapsed time during loading
+  useEffect(() => {
+    if (!loading) {
+      setElapsedTime(0);
+      return;
+    }
+    const interval = setInterval(() => {
+      setElapsedTime((prev) => prev + 1);
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [loading]);
 
   // Save network to localStorage when it changes
   const handleNetworkChange = (newNetwork: Network) => {
@@ -568,7 +581,8 @@ function HomeContent() {
           {loading && (
             <div className="mt-8">
               <p className="mb-3 text-center text-sm text-zinc-500 dark:text-zinc-400">
-                This can take up to 10 seconds. Enjoy the Minecraft parkour video.
+                {elapsedTime > 0 ? `Fetching... ${elapsedTime}s` : "Fetching..."}
+                {tokenType === "erc20" && elapsedTime > 30 && " (ERC20 tokens with many transfers can take a while)"}
               </p>
               <div className="overflow-hidden rounded-xl">
                 <video
