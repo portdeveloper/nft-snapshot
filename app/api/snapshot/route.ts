@@ -218,7 +218,13 @@ export async function GET(request: NextRequest) {
     // Check database cache first (unless refresh is requested)
     const cachedSnapshot = !refresh ? await getSnapshot(contractAddress) : null;
 
-    if (cachedSnapshot) {
+    // Check if cache is stale (older than 1 hour)
+    const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
+    const isStale = cachedSnapshot
+      ? Date.now() - new Date(cachedSnapshot.updated_at).getTime() > CACHE_TTL_MS
+      : false;
+
+    if (cachedSnapshot && !isStale) {
       const cachedOwnership = await getOwnership(cachedSnapshot.id);
 
       snapshotBlock = Number(cachedSnapshot.snapshot_block);
