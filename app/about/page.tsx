@@ -2,8 +2,8 @@ import Link from "next/link";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "About - NFT Snapshot",
-  description: "Learn how NFT Snapshot works and how to use it for your Monad NFT collection",
+  title: "About - Token Snapshot",
+  description: "Learn how Token Snapshot works for ERC-721 NFTs and ERC-20 tokens on Monad",
 };
 
 export default function About() {
@@ -35,20 +35,38 @@ export default function About() {
             How It Works
           </h1>
           <p className="mb-8 text-sm text-zinc-600 dark:text-zinc-400">
-            NFT Snapshot helps Monad projects preserve NFT ownership data before testnet regenesis.
+            Token Snapshot helps Monad projects preserve token ownership and balance data before testnet regenesis.
           </p>
 
           <div className="space-y-8">
             <section>
               <h2 className="mb-3 text-lg font-medium text-zinc-900 dark:text-zinc-100">
-                What is NFT Snapshot?
+                What is Token Snapshot?
               </h2>
               <p className="text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
-                NFT Snapshot is an official Monad DevRel tool that allows projects to capture
-                a complete snapshot of NFT ownership for any ERC-721 collection on Monad.
+                Token Snapshot is an official Monad DevRel tool that allows projects to capture
+                a complete snapshot of token ownership for any ERC-721 (NFT) collection or ERC-20 token on Monad.
                 This is especially useful before testnet regenesis events, enabling projects to
-                redistribute NFTs to their original holders afterward.
+                redistribute tokens to their original holders afterward.
               </p>
+            </section>
+
+            <section>
+              <h2 className="mb-3 text-lg font-medium text-zinc-900 dark:text-zinc-100">
+                Supported Token Types
+              </h2>
+              <div className="space-y-3 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
+                <div>
+                  <span className="font-medium text-zinc-900 dark:text-zinc-100">ERC-721 (NFTs)</span>
+                  {" "}- Captures ownership of each individual token ID. Results show which address owns each NFT.
+                  Snapshots are cached for faster access.
+                </div>
+                <div>
+                  <span className="font-medium text-zinc-900 dark:text-zinc-100">ERC-20 (Tokens)</span>
+                  {" "}- Captures token balances for all holders. Results show each address and their balance
+                  (as raw values without decimal adjustment). ERC-20 snapshots are fetched fresh each time.
+                </div>
+              </div>
             </section>
 
             <section>
@@ -57,16 +75,20 @@ export default function About() {
               </h2>
               <ol className="list-inside list-decimal space-y-3 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
                 <li>
-                  <span className="font-medium text-zinc-900 dark:text-zinc-100">Enter Contract Address</span>
-                  {" "}- Paste your NFT collection&apos;s contract address
+                  <span className="font-medium text-zinc-900 dark:text-zinc-100">Select Token Type</span>
+                  {" "}- Choose between ERC-721 (NFT) or ERC-20 (Token) mode
                 </li>
                 <li>
-                  <span className="font-medium text-zinc-900 dark:text-zinc-100">Fetch Ownership Data</span>
-                  {" "}- We query all Transfer events from the blockchain to reconstruct current ownership
+                  <span className="font-medium text-zinc-900 dark:text-zinc-100">Enter Contract Address</span>
+                  {" "}- Paste your token contract address
+                </li>
+                <li>
+                  <span className="font-medium text-zinc-900 dark:text-zinc-100">Fetch Data</span>
+                  {" "}- We query all Transfer events from the blockchain to reconstruct current ownership/balances
                 </li>
                 <li>
                   <span className="font-medium text-zinc-900 dark:text-zinc-100">Generate Merkle Tree</span>
-                  {" "}- A merkle tree is generated from the ownership data for efficient on-chain verification
+                  {" "}- A merkle tree is generated for efficient on-chain verification
                 </li>
                 <li>
                   <span className="font-medium text-zinc-900 dark:text-zinc-100">Download & Use</span>
@@ -82,12 +104,13 @@ export default function About() {
               <div className="space-y-3 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
                 <div>
                   <span className="font-medium text-zinc-900 dark:text-zinc-100">CSV Export</span>
-                  {" "}- Simple format with tokenId and owner columns. Perfect for airdrops or manual processing.
+                  {" "}- Simple format for airdrops or manual processing. For ERC-721: tokenId and owner columns.
+                  For ERC-20: address and balance columns.
                 </div>
                 <div>
                   <span className="font-medium text-zinc-900 dark:text-zinc-100">Merkle Tree JSON</span>
-                  {" "}- Complete merkle tree data including the root hash and individual proofs for each token.
-                  Use this for building claim contracts where users can verify ownership on-chain.
+                  {" "}- Complete merkle tree data including the root hash and individual proofs.
+                  Use this for building claim contracts where users can verify ownership/balances on-chain.
                 </div>
               </div>
             </section>
@@ -97,9 +120,10 @@ export default function About() {
                 Caching
               </h2>
               <p className="text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
-                Snapshots are cached in our database for faster subsequent access. Cache automatically
+                ERC-721 snapshots are cached in our database for faster subsequent access. Cache automatically
                 refreshes if the data is older than 1 hour. You can also manually refresh by clicking
-                the &quot;Refresh&quot; button to get the latest ownership data.
+                the &quot;Refresh&quot; button to get the latest data. ERC-20 snapshots are always fetched fresh
+                to ensure accuracy, as token balances change more frequently.
               </p>
             </section>
 
@@ -130,7 +154,7 @@ export default function About() {
                 </a>
                 {" "}for lightning-fast blockchain data indexing on{" "}
                 <span className="font-medium text-zinc-900 dark:text-zinc-100">Monad</span>.
-                HyperSync enables us to query all Transfer events for any NFT collection in seconds,
+                HyperSync enables us to query all Transfer events for any token in seconds,
                 regardless of how many transfers have occurred.
               </p>
             </section>

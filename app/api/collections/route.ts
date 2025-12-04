@@ -7,10 +7,12 @@ export async function GET(request: NextRequest) {
   const network: Network | undefined = networkParam === "mainnet" ? "mainnet" : networkParam === "testnet" ? "testnet" : undefined;
 
   try {
+    // Only ERC721 snapshots are cached in the database
     const snapshots = await getAllSnapshots(network);
     return NextResponse.json({
       collections: snapshots.map((s) => ({
         contract: s.contract_address,
+        tokenType: "erc721",
         network: s.network,
         snapshotBlock: Number(s.snapshot_block),
         merkleRoot: s.merkle_root,

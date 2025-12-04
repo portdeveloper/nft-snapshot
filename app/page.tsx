@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 
 type Network = "testnet" | "mainnet";
+type TokenType = "erc721" | "erc20";
 
 interface CachedCollection {
   contract: string;
@@ -16,8 +17,10 @@ interface CachedCollection {
   updatedAt: string;
 }
 
-interface SnapshotData {
+// ERC721 snapshot data
+interface ERC721SnapshotData {
   contract: string;
+  tokenType: "erc721";
   network: Network;
   snapshotBlock: number;
   merkleRoot: string;
@@ -28,6 +31,23 @@ interface SnapshotData {
   };
   data: { tokenId: string; owner: string }[];
 }
+
+// ERC20 snapshot data
+interface ERC20SnapshotData {
+  contract: string;
+  tokenType: "erc20";
+  network: Network;
+  snapshotBlock: number;
+  merkleRoot: string;
+  fromCache?: boolean;
+  analytics: {
+    totalSupply: string;
+    holders: number;
+  };
+  data: { address: string; balance: string }[];
+}
+
+type SnapshotData = ERC721SnapshotData | ERC20SnapshotData;
 
 function CopyIcon({ className }: { className?: string }) {
   return (
@@ -165,8 +185,15 @@ function formatTimeAgo(dateString: string): string {
   return `${diffDays}d ago`;
 }
 
+// Format large numbers with commas, handling BigInt-sized strings
+function formatBalance(balance: string): string {
+  // Insert commas every 3 digits from the right
+  return balance.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+}
+
 const SEARCH_HISTORY_KEY = "nft-snapshot-history";
 const NETWORK_KEY = "nft-snapshot-network";
+const TOKEN_TYPE_KEY = "nft-snapshot-token-type";
 
 function getSearchHistory(): string[] {
   if (typeof window === "undefined") return [];
@@ -199,6 +226,20 @@ function saveNetwork(network: Network): void {
   localStorage.setItem(NETWORK_KEY, network);
 }
 
+function getSavedTokenType(): TokenType {
+  if (typeof window === "undefined") return "erc721";
+  try {
+    const stored = localStorage.getItem(TOKEN_TYPE_KEY);
+    return stored === "erc20" ? "erc20" : "erc721";
+  } catch {
+    return "erc721";
+  }
+}
+
+function saveTokenType(tokenType: TokenType): void {
+  localStorage.setItem(TOKEN_TYPE_KEY, tokenType);
+}
+
 function HomeContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -212,11 +253,13 @@ function HomeContent() {
   const [searchHistory, setSearchHistory] = useState<string[]>([]);
   const [initialLoad, setInitialLoad] = useState(true);
   const [network, setNetwork] = useState<Network>("testnet");
+  const [tokenType, setTokenType] = useState<TokenType>("erc721");
 
-  // Load search history and network from localStorage on mount
+  // Load search history, network, and token type from localStorage on mount
   useEffect(() => {
     setSearchHistory(getSearchHistory());
     setNetwork(getSavedNetwork());
+    setTokenType(getSavedTokenType());
   }, []);
 
   // Save network to localStorage when it changes
@@ -226,9 +269,16 @@ function HomeContent() {
     setSnapshot(null); // Clear current snapshot when switching networks
   };
 
-  // Fetch cached collections only for addresses in search history
+  // Save token type to localStorage when it changes
+  const handleTokenTypeChange = (newTokenType: TokenType) => {
+    setTokenType(newTokenType);
+    saveTokenType(newTokenType);
+    setSnapshot(null); // Clear current snapshot when switching token types
+  };
+
+  // Fetch cached collections only for addresses in search history (ERC721 only)
   useEffect(() => {
-    if (searchHistory.length === 0) {
+    if (searchHistory.length === 0 || tokenType === "erc20") {
       setCollections([]);
       return;
     }
@@ -257,18 +307,27 @@ function HomeContent() {
       }
     }
     fetchCollections();
-  }, [searchHistory, network]);
+  }, [searchHistory, network, tokenType]);
 
   const filteredData = useMemo(() => {
     if (!snapshot) return [];
     if (!searchQuery.trim()) return snapshot.data;
 
     const query = searchQuery.toLowerCase().trim();
-    return snapshot.data.filter(
-      (item) =>
-        item.tokenId.includes(query) ||
-        item.owner.toLowerCase().includes(query)
-    );
+
+    if (snapshot.tokenType === "erc721") {
+      return (snapshot.data as { tokenId: string; owner: string }[]).filter(
+        (item) =>
+          item.tokenId.includes(query) ||
+          item.owner.toLowerCase().includes(query)
+      );
+    } else {
+      return (snapshot.data as { address: string; balance: string }[]).filter(
+        (item) =>
+          item.address.toLowerCase().includes(query) ||
+          item.balance.includes(query)
+      );
+    }
   }, [snapshot, searchQuery]);
 
   const handleFetch = useCallback(async (refresh = false, addressOverride?: string) => {
@@ -301,7 +360,7 @@ function HomeContent() {
     setSearchQuery("");
 
     try {
-      const url = `/api/snapshot?contract=${address}&network=${network}${refresh ? "&refresh=true" : ""}`;
+      const url = `/api/snapshot?contract=${address}&network=${network}&type=${tokenType}${refresh ? "&refresh=true" : ""}`;
       const response = await fetch(url);
 
       if (!response.ok) {
@@ -312,16 +371,18 @@ function HomeContent() {
       const data: SnapshotData = await response.json();
       setSnapshot(data);
 
-      // Add to search history and refresh history state
-      addToSearchHistory(address);
-      setSearchHistory(getSearchHistory());
+      // Add to search history and refresh history state (only for ERC721)
+      if (tokenType === "erc721") {
+        addToSearchHistory(address);
+        setSearchHistory(getSearchHistory());
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "An error occurred");
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [contractAddress, router, network]);
+  }, [contractAddress, router, network, tokenType]);
 
   // Load contract from URL on initial mount
   useEffect(() => {
@@ -338,7 +399,7 @@ function HomeContent() {
   const handleDownloadCSV = () => {
     if (!snapshot) return;
     window.open(
-      `/api/snapshot?contract=${snapshot.contract}&network=${network}&format=csv`,
+      `/api/snapshot?contract=${snapshot.contract}&network=${network}&type=${snapshot.tokenType}&format=csv`,
       "_blank"
     );
   };
@@ -346,7 +407,7 @@ function HomeContent() {
   const handleDownloadMerkle = () => {
     if (!snapshot) return;
     window.open(
-      `/api/snapshot?contract=${snapshot.contract}&network=${network}&format=merkle`,
+      `/api/snapshot?contract=${snapshot.contract}&network=${network}&type=${snapshot.tokenType}&format=merkle`,
       "_blank"
     );
   };
@@ -358,10 +419,12 @@ function HomeContent() {
           <div className="mb-6 flex items-start justify-between">
             <div>
               <h1 className="mb-2 text-2xl font-semibold text-zinc-900 dark:text-zinc-100">
-                NFT Snapshot
+                {tokenType === "erc721" ? "NFT Snapshot" : "Token Snapshot"}
               </h1>
               <p className="text-sm text-zinc-600 dark:text-zinc-400">
-                Get a snapshot of all NFT holders for any collection on Monad
+                {tokenType === "erc721"
+                  ? "Get a snapshot of all NFT holders for any collection on Monad"
+                  : "Get a snapshot of all token holders for any ERC20 on Monad"}
               </p>
             </div>
             <div className="flex items-center gap-1 rounded-lg bg-zinc-100 p-1 dark:bg-zinc-800">
@@ -384,6 +447,32 @@ function HomeContent() {
                 }`}
               >
                 Mainnet
+              </button>
+            </div>
+          </div>
+
+          {/* Token Type Toggle */}
+          <div className="mb-6">
+            <div className="flex items-center gap-1 rounded-lg bg-zinc-100 p-1 dark:bg-zinc-800">
+              <button
+                onClick={() => handleTokenTypeChange("erc721")}
+                className={`flex-1 cursor-pointer rounded-md px-3 py-2 text-sm font-medium transition-colors ${
+                  tokenType === "erc721"
+                    ? "bg-white text-zinc-900 shadow-sm dark:bg-zinc-700 dark:text-zinc-100"
+                    : "text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-200"
+                }`}
+              >
+                ERC-721 (NFT)
+              </button>
+              <button
+                onClick={() => handleTokenTypeChange("erc20")}
+                className={`flex-1 cursor-pointer rounded-md px-3 py-2 text-sm font-medium transition-colors ${
+                  tokenType === "erc20"
+                    ? "bg-white text-zinc-900 shadow-sm dark:bg-zinc-700 dark:text-zinc-100"
+                    : "text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-200"
+                }`}
+              >
+                ERC-20 (Token)
               </button>
             </div>
           </div>
@@ -421,8 +510,8 @@ function HomeContent() {
               <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
             )}
 
-            {/* Example contract */}
-            {!snapshot && !loading && (
+            {/* Example contract - only show for ERC721 */}
+            {!snapshot && !loading && tokenType === "erc721" && (
               <div className="flex items-center gap-2 text-xs text-zinc-500 dark:text-zinc-400">
                 <span>Try it out:</span>
                 <button
@@ -437,8 +526,8 @@ function HomeContent() {
               </div>
             )}
 
-            {/* Recent Searches - only show if user has search history with cached data */}
-            {!snapshot && !loading && collections.length > 0 && (
+            {/* Recent Searches - only show for ERC721 with cached data */}
+            {!snapshot && !loading && tokenType === "erc721" && collections.length > 0 && (
               <div className="pt-2">
                 <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
                   Recent searches
@@ -466,6 +555,15 @@ function HomeContent() {
                 </div>
               </div>
             )}
+
+            {/* ERC20 info notice */}
+            {!snapshot && !loading && tokenType === "erc20" && (
+              <div className="rounded-lg bg-amber-50 px-4 py-3 dark:bg-amber-900/20">
+                <p className="text-sm text-amber-700 dark:text-amber-300">
+                  ERC20 snapshots are not cached and will be fetched fresh each time. Balances are shown as raw values (without decimal adjustment).
+                </p>
+              </div>
+            )}
           </div>
 
           {loading && (
@@ -489,8 +587,8 @@ function HomeContent() {
 
           {snapshot && !loading && (
             <div className="mt-8 space-y-6">
-              {/* Cache indicator and refresh */}
-              {snapshot.fromCache && (
+              {/* Cache indicator and refresh - only for ERC721 */}
+              {snapshot.fromCache && snapshot.tokenType === "erc721" && (
                 <div className="flex items-center justify-between rounded-lg bg-blue-50 px-4 py-3 dark:bg-blue-900/20">
                   <p className="text-sm text-blue-700 dark:text-blue-300">
                     Loaded from cache
@@ -506,33 +604,62 @@ function HomeContent() {
                 </div>
               )}
 
-              {/* Analytics Cards */}
-              <div className="grid grid-cols-3 gap-4">
-                <div className="rounded-lg bg-zinc-50 p-4 dark:bg-zinc-800">
-                  <p className="text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
-                    Total NFTs
-                  </p>
-                  <p className="mt-1 text-2xl font-semibold text-zinc-900 dark:text-zinc-100">
-                    {snapshot.analytics.totalNfts.toLocaleString()}
-                  </p>
+              {/* Analytics Cards - conditional based on token type */}
+              {snapshot.tokenType === "erc721" ? (
+                <div className="grid grid-cols-3 gap-4">
+                  <div className="rounded-lg bg-zinc-50 p-4 dark:bg-zinc-800">
+                    <p className="text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+                      Total NFTs
+                    </p>
+                    <p className="mt-1 text-2xl font-semibold text-zinc-900 dark:text-zinc-100">
+                      {snapshot.analytics.totalNfts.toLocaleString()}
+                    </p>
+                  </div>
+                  <div className="rounded-lg bg-zinc-50 p-4 dark:bg-zinc-800">
+                    <p className="text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+                      Unique Owners
+                    </p>
+                    <p className="mt-1 text-2xl font-semibold text-zinc-900 dark:text-zinc-100">
+                      {snapshot.analytics.uniqueOwners.toLocaleString()}
+                    </p>
+                  </div>
+                  <div className="rounded-lg bg-zinc-50 p-4 dark:bg-zinc-800">
+                    <p className="text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+                      Snapshot Block
+                    </p>
+                    <p className="mt-1 text-2xl font-semibold text-zinc-900 dark:text-zinc-100">
+                      {snapshot.snapshotBlock.toLocaleString()}
+                    </p>
+                  </div>
                 </div>
-                <div className="rounded-lg bg-zinc-50 p-4 dark:bg-zinc-800">
-                  <p className="text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
-                    Unique Owners
-                  </p>
-                  <p className="mt-1 text-2xl font-semibold text-zinc-900 dark:text-zinc-100">
-                    {snapshot.analytics.uniqueOwners.toLocaleString()}
-                  </p>
+              ) : (
+                <div className="grid grid-cols-3 gap-4">
+                  <div className="rounded-lg bg-zinc-50 p-4 dark:bg-zinc-800">
+                    <p className="text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+                      Total Supply
+                    </p>
+                    <p className="mt-1 truncate text-lg font-semibold text-zinc-900 dark:text-zinc-100" title={formatBalance(snapshot.analytics.totalSupply)}>
+                      {formatBalance(snapshot.analytics.totalSupply)}
+                    </p>
+                  </div>
+                  <div className="rounded-lg bg-zinc-50 p-4 dark:bg-zinc-800">
+                    <p className="text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+                      Holders
+                    </p>
+                    <p className="mt-1 text-2xl font-semibold text-zinc-900 dark:text-zinc-100">
+                      {snapshot.analytics.holders.toLocaleString()}
+                    </p>
+                  </div>
+                  <div className="rounded-lg bg-zinc-50 p-4 dark:bg-zinc-800">
+                    <p className="text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+                      Snapshot Block
+                    </p>
+                    <p className="mt-1 text-2xl font-semibold text-zinc-900 dark:text-zinc-100">
+                      {snapshot.snapshotBlock.toLocaleString()}
+                    </p>
+                  </div>
                 </div>
-                <div className="rounded-lg bg-zinc-50 p-4 dark:bg-zinc-800">
-                  <p className="text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
-                    Snapshot Block
-                  </p>
-                  <p className="mt-1 text-2xl font-semibold text-zinc-900 dark:text-zinc-100">
-                    {snapshot.snapshotBlock.toLocaleString()}
-                  </p>
-                </div>
-              </div>
+              )}
 
               {/* Merkle Root */}
               <div className="rounded-lg bg-zinc-50 p-4 dark:bg-zinc-800">
@@ -551,7 +678,7 @@ function HomeContent() {
                   <div className="flex items-center gap-3">
                     <input
                       type="text"
-                      placeholder="Search by token ID or owner..."
+                      placeholder={snapshot.tokenType === "erc721" ? "Search by token ID or owner..." : "Search by address or balance..."}
                       value={searchQuery}
                       onChange={(e) => setSearchQuery(e.target.value)}
                       className="w-full rounded-md border border-zinc-200 bg-white px-3 py-1.5 text-sm text-zinc-900 placeholder-zinc-400 focus:border-zinc-400 focus:outline-none focus:ring-1 focus:ring-zinc-400 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100 dark:placeholder-zinc-500 dark:focus:border-zinc-500 dark:focus:ring-zinc-500 sm:w-64"
@@ -577,12 +704,25 @@ function HomeContent() {
                   <table className="w-full text-sm">
                     <thead className="sticky top-0 z-10 bg-zinc-50 dark:bg-zinc-800">
                       <tr>
-                        <th className="px-4 py-2.5 text-left font-medium text-zinc-600 dark:text-zinc-400">
-                          Token ID
-                        </th>
-                        <th className="px-4 py-2.5 text-left font-medium text-zinc-600 dark:text-zinc-400">
-                          Owner
-                        </th>
+                        {snapshot.tokenType === "erc721" ? (
+                          <>
+                            <th className="px-4 py-2.5 text-left font-medium text-zinc-600 dark:text-zinc-400">
+                              Token ID
+                            </th>
+                            <th className="px-4 py-2.5 text-left font-medium text-zinc-600 dark:text-zinc-400">
+                              Owner
+                            </th>
+                          </>
+                        ) : (
+                          <>
+                            <th className="px-4 py-2.5 text-left font-medium text-zinc-600 dark:text-zinc-400">
+                              Address
+                            </th>
+                            <th className="px-4 py-2.5 text-right font-medium text-zinc-600 dark:text-zinc-400">
+                              Balance
+                            </th>
+                          </>
+                        )}
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
@@ -595,8 +735,8 @@ function HomeContent() {
                             No results found
                           </td>
                         </tr>
-                      ) : (
-                        filteredData.slice(0, 50).map((item) => (
+                      ) : snapshot.tokenType === "erc721" ? (
+                        (filteredData as { tokenId: string; owner: string }[]).slice(0, 50).map((item) => (
                           <tr
                             key={item.tokenId}
                             className="bg-white dark:bg-zinc-900"
@@ -606,6 +746,20 @@ function HomeContent() {
                             </td>
                             <td className="px-4 py-2">
                               <CopyableAddress address={item.owner} />
+                            </td>
+                          </tr>
+                        ))
+                      ) : (
+                        (filteredData as { address: string; balance: string }[]).slice(0, 50).map((item) => (
+                          <tr
+                            key={item.address}
+                            className="bg-white dark:bg-zinc-900"
+                          >
+                            <td className="px-4 py-2">
+                              <CopyableAddress address={item.address} />
+                            </td>
+                            <td className="px-4 py-2.5 text-right font-mono text-zinc-900 dark:text-zinc-100">
+                              {formatBalance(item.balance)}
                             </td>
                           </tr>
                         ))
