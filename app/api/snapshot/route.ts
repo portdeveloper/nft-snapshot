@@ -40,6 +40,14 @@ type Network = "testnet" | "mainnet";
 const TRANSFER_EVENT_SIGNATURE =
   "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
 
+// ERC-1155 event signatures
+// TransferSingle(address indexed operator, address indexed from, address indexed to, uint256 id, uint256 value)
+const TRANSFER_SINGLE_SIGNATURE =
+  "0xc3d58168c5ae7397731d063d5bbf3d657854e8edc5b7fe4fb6c36fc7b3e9dc60";
+// TransferBatch(address indexed operator, address indexed from, address indexed to, uint256[] ids, uint256[] values)
+const TRANSFER_BATCH_SIGNATURE =
+  "0x4a39dc06d4c0dbc64b70af90fd698a233a518aa5d07e6ba3c89c9dc12e53f4a0";
+
 const HYPERSYNC_URLS: Record<Network, string> = {
   testnet: "https://monad-testnet.hypersync.xyz",
   mainnet: "https://monad.hypersync.xyz",
@@ -47,7 +55,7 @@ const HYPERSYNC_URLS: Record<Network, string> = {
 
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 
-type TokenType = "erc721" | "erc20";
+type TokenType = "erc721" | "erc20" | "erc1155";
 
 function parseAddress(topic: string): string {
   return "0x" + topic.slice(-40).toLowerCase();
@@ -81,6 +89,15 @@ interface HypersyncERC20Log {
   topic1: string;
   topic2: string;
   data: string;
+}
+
+// ERC1155 log interface - operator, from, to indexed; id and value in data
+interface HypersyncERC1155Log {
+  topic0: string;
+  topic1: string; // operator (indexed)
+  topic2: string; // from (indexed)
+  topic3: string; // to (indexed)
+  data: string;   // id and value (TransferSingle) or ids[] and values[] (TransferBatch)
 }
 
 interface HypersyncDataBlock<T> {
@@ -162,6 +179,60 @@ async function queryHypersyncERC20(
     ],
     field_selection: {
       log: ["topic0", "topic1", "topic2", "data"],
+    },
+  };
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 30000);
+
+  try {
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+    };
+    if (apiKey) {
+      headers["Authorization"] = `Bearer ${apiKey}`;
+    }
+
+    const response = await fetch(`${HYPERSYNC_URLS[network]}/query`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(query),
+      signal: controller.signal,
+    });
+
+    clearTimeout(timeoutId);
+
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(`HyperSync error: ${response.status} - ${text}`);
+    }
+
+    return response.json();
+  } catch (error) {
+    clearTimeout(timeoutId);
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new Error("HyperSync request timed out after 30 seconds");
+    }
+    throw error;
+  }
+}
+
+async function queryHypersyncERC1155(
+  contractAddress: string,
+  fromBlock: number,
+  network: Network,
+  apiKey: string | undefined
+): Promise<HypersyncResponse<HypersyncERC1155Log>> {
+  const query = {
+    from_block: fromBlock,
+    logs: [
+      {
+        address: [contractAddress],
+        topics: [[TRANSFER_SINGLE_SIGNATURE, TRANSFER_BATCH_SIGNATURE]],
+      },
+    ],
+    field_selection: {
+      log: ["topic0", "topic1", "topic2", "topic3", "data"],
     },
   };
 
@@ -373,6 +444,160 @@ async function fetchERC20FromHypersync(
   };
 }
 
+// Parse ERC-1155 TransferSingle data field: id (32 bytes) + value (32 bytes)
+function parseTransferSingleData(data: string): { tokenId: string; value: bigint } | null {
+  if (!data || data.length < 130) return null; // 0x + 64 chars (id) + 64 chars (value)
+  try {
+    const tokenId = BigInt("0x" + data.slice(2, 66)).toString();
+    const value = BigInt("0x" + data.slice(66, 130));
+    return { tokenId, value };
+  } catch {
+    return null;
+  }
+}
+
+// Parse ERC-1155 TransferBatch data field: ABI-encoded arrays of ids and values
+function parseTransferBatchData(data: string): { tokenId: string; value: bigint }[] | null {
+  if (!data || data.length < 258) return null; // Minimum: offsets + 2 lengths + 1 id + 1 value
+  try {
+    // ABI encoding for two dynamic arrays:
+    // - offset to ids array (32 bytes)
+    // - offset to values array (32 bytes)
+    // - ids array: length (32 bytes) + elements
+    // - values array: length (32 bytes) + elements
+    const idsOffset = Number(BigInt("0x" + data.slice(2, 66)));
+    const valuesOffset = Number(BigInt("0x" + data.slice(66, 130)));
+
+    // Read ids array length (at idsOffset)
+    const idsLengthStart = 2 + idsOffset * 2;
+    const idsLength = Number(BigInt("0x" + data.slice(idsLengthStart, idsLengthStart + 64)));
+
+    // Read values array length (at valuesOffset)
+    const valuesLengthStart = 2 + valuesOffset * 2;
+    const valuesLength = Number(BigInt("0x" + data.slice(valuesLengthStart, valuesLengthStart + 64)));
+
+    if (idsLength !== valuesLength || idsLength === 0) return null;
+
+    const results: { tokenId: string; value: bigint }[] = [];
+    for (let i = 0; i < idsLength; i++) {
+      const idStart = idsLengthStart + 64 + i * 64;
+      const valueStart = valuesLengthStart + 64 + i * 64;
+      const tokenId = BigInt("0x" + data.slice(idStart, idStart + 64)).toString();
+      const value = BigInt("0x" + data.slice(valueStart, valueStart + 64));
+      results.push({ tokenId, value });
+    }
+    return results;
+  } catch {
+    return null;
+  }
+}
+
+async function fetchERC1155FromHypersync(
+  contractAddress: string,
+  network: Network,
+  apiKey: string | undefined,
+  options: FetchOptions = {}
+) {
+  const latestBlock = await getLatestBlock(network, apiKey);
+  // Map: address -> tokenId -> balance
+  const balances = new Map<string, Map<string, bigint>>();
+
+  let fromBlock = 0;
+  let hasMore = true;
+  let iterations = 0;
+  const maxIterations = options.maxIterations || 10000;
+
+  while (hasMore) {
+    if (iterations >= maxIterations) {
+      break;
+    }
+
+    iterations++;
+    const response = await queryHypersyncERC1155(contractAddress, fromBlock, network, apiKey);
+
+    if (response.data && response.data.length > 0) {
+      for (const block of response.data) {
+        if (block.logs) {
+          for (const log of block.logs) {
+            if (!log.topic2 || !log.topic3 || !log.data) continue;
+
+            const from = parseAddress(log.topic2);
+            const to = parseAddress(log.topic3);
+
+            let transfers: { tokenId: string; value: bigint }[] = [];
+
+            if (log.topic0 === TRANSFER_SINGLE_SIGNATURE) {
+              const parsed = parseTransferSingleData(log.data);
+              if (parsed) transfers = [parsed];
+            } else if (log.topic0 === TRANSFER_BATCH_SIGNATURE) {
+              const parsed = parseTransferBatchData(log.data);
+              if (parsed) transfers = parsed;
+            }
+
+            for (const { tokenId, value } of transfers) {
+              // Subtract from sender
+              if (from !== ZERO_ADDRESS) {
+                if (!balances.has(from)) balances.set(from, new Map());
+                const fromBalances = balances.get(from)!;
+                const current = fromBalances.get(tokenId) || 0n;
+                fromBalances.set(tokenId, current - value);
+              }
+
+              // Add to receiver
+              if (to !== ZERO_ADDRESS) {
+                if (!balances.has(to)) balances.set(to, new Map());
+                const toBalances = balances.get(to)!;
+                const current = toBalances.get(tokenId) || 0n;
+                toBalances.set(tokenId, current + value);
+              }
+            }
+          }
+        }
+      }
+    }
+
+    if (response.next_block && response.next_block > fromBlock) {
+      fromBlock = response.next_block;
+    } else {
+      hasMore = false;
+    }
+
+    if (!response.data?.length && !response.next_block) {
+      hasMore = false;
+    }
+  }
+
+  // Flatten and filter: create (address, tokenId, balance) tuples with positive balances
+  const holdings: { address: string; tokenId: string; balance: string }[] = [];
+  const uniqueOwners = new Set<string>();
+  const uniqueTokenIds = new Set<string>();
+
+  for (const [address, tokenBalances] of balances) {
+    for (const [tokenId, balance] of tokenBalances) {
+      if (balance > 0n) {
+        holdings.push({ address, tokenId, balance: balance.toString() });
+        uniqueOwners.add(address);
+        uniqueTokenIds.add(tokenId);
+      }
+    }
+  }
+
+  // Sort by tokenId (numeric) then by balance descending
+  holdings.sort((a, b) => {
+    const tokenDiff = Number(BigInt(a.tokenId) - BigInt(b.tokenId));
+    if (tokenDiff !== 0) return tokenDiff;
+    return BigInt(b.balance) > BigInt(a.balance) ? 1 : BigInt(b.balance) < BigInt(a.balance) ? -1 : 0;
+  });
+
+  return {
+    latestBlock,
+    holdings,
+    uniqueOwnersCount: uniqueOwners.size,
+    uniqueTokenIdsCount: uniqueTokenIds.size,
+    totalHoldings: holdings.length,
+  };
+}
+
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams;
   const contractAddress = searchParams.get("contract");
@@ -380,7 +605,7 @@ export async function GET(request: NextRequest) {
   const networkParam = searchParams.get("network");
   const network: Network = networkParam === "mainnet" ? "mainnet" : "testnet";
   const typeParam = searchParams.get("type");
-  const tokenType: TokenType = typeParam === "erc20" ? "erc20" : "erc721";
+  const tokenType: TokenType = typeParam === "erc20" ? "erc20" : typeParam === "erc1155" ? "erc1155" : "erc721";
   const userApiKey = searchParams.get("apiKey");
 
   // Use user's API key if provided, otherwise use shared key
@@ -447,6 +672,42 @@ export async function GET(request: NextRequest) {
         analytics: {
           totalSupply: result.totalSupply,
           holders: result.holdersCount,
+        },
+        data: previewData,
+      });
+    }
+
+    // Handle ERC1155 tokens (multi-token)
+    if (tokenType === "erc1155") {
+      const options: FetchOptions = {};
+      const result = await fetchERC1155FromHypersync(contractAddress, network, apiKey, options);
+
+      if (format === "csv") {
+        const csvRows = ["address,tokenId,balance"];
+        for (const { address, tokenId, balance } of result.holdings) {
+          csvRows.push(`${address},${tokenId},${balance}`);
+        }
+        return new NextResponse(csvRows.join("\n"), {
+          headers: {
+            "Content-Type": "text/csv",
+            "Content-Disposition": `attachment; filename="${contractAddress}-erc1155-snapshot.csv"`,
+          },
+        });
+      }
+
+      // Preview response - limit to first 1000 holdings
+      const MAX_PREVIEW = 1000;
+      const previewData = result.holdings.slice(0, MAX_PREVIEW);
+
+      return NextResponse.json({
+        contract: contractAddress,
+        tokenType: "erc1155",
+        network,
+        snapshotBlock: result.latestBlock,
+        analytics: {
+          totalHoldings: result.totalHoldings,
+          uniqueOwners: result.uniqueOwnersCount,
+          uniqueTokenIds: result.uniqueTokenIdsCount,
         },
         data: previewData,
       });

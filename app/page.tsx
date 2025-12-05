@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 
 type Network = "testnet" | "mainnet";
-type TokenType = "erc721" | "erc20";
+type TokenType = "erc721" | "erc20" | "erc1155";
 
 // ERC721 snapshot data
 interface ERC721SnapshotData {
@@ -33,7 +33,21 @@ interface ERC20SnapshotData {
   data: { address: string; balance: string }[];
 }
 
-type SnapshotData = ERC721SnapshotData | ERC20SnapshotData;
+// ERC1155 snapshot data
+interface ERC1155SnapshotData {
+  contract: string;
+  tokenType: "erc1155";
+  network: Network;
+  snapshotBlock: number;
+  analytics: {
+    totalHoldings: number;
+    uniqueOwners: number;
+    uniqueTokenIds: number;
+  };
+  data: { address: string; tokenId: string; balance: string }[];
+}
+
+type SnapshotData = ERC721SnapshotData | ERC20SnapshotData | ERC1155SnapshotData;
 
 function CopyIcon({ className }: { className?: string }) {
   return (
@@ -668,7 +682,9 @@ function getSavedTokenType(): TokenType {
   if (typeof window === "undefined") return "erc721";
   try {
     const stored = localStorage.getItem(TOKEN_TYPE_KEY);
-    return stored === "erc20" ? "erc20" : "erc721";
+    if (stored === "erc20") return "erc20";
+    if (stored === "erc1155") return "erc1155";
+    return "erc721";
   } catch {
     return "erc721";
   }
@@ -791,6 +807,13 @@ function HomeContent() {
         (item) =>
           item.tokenId.includes(query) ||
           item.owner.toLowerCase().includes(query)
+      );
+    } else if (snapshot.tokenType === "erc1155") {
+      return (snapshot.data as { address: string; tokenId: string; balance: string }[]).filter(
+        (item) =>
+          item.address.toLowerCase().includes(query) ||
+          item.tokenId.includes(query) ||
+          item.balance.includes(query)
       );
     } else {
       return (snapshot.data as { address: string; balance: string }[]).filter(
@@ -923,11 +946,13 @@ function HomeContent() {
                 onClick={handleTitleClick}
                 className="mb-2 cursor-pointer select-none text-2xl font-semibold text-zinc-900 dark:text-zinc-100"
               >
-                {tokenType === "erc721" ? "NFT Snapshot" : "Token Snapshot"}
+                {tokenType === "erc721" ? "NFT Snapshot" : tokenType === "erc1155" ? "Multi-Token Snapshot" : "Token Snapshot"}
               </h1>
               <p className="text-sm text-zinc-600 dark:text-zinc-400">
                 {tokenType === "erc721"
                   ? "Get a snapshot of all NFT holders for any collection on Monad"
+                  : tokenType === "erc1155"
+                  ? "Get a snapshot of all ERC-1155 multi-token holders on Monad"
                   : "Get a snapshot of all token holders for any ERC20 on Monad"}
               </p>
             </div>
@@ -966,7 +991,17 @@ function HomeContent() {
                     : "text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-200"
                 }`}
               >
-                ERC-721 (NFT)
+                ERC-721
+              </button>
+              <button
+                onClick={() => handleTokenTypeChange("erc1155")}
+                className={`flex-1 cursor-pointer rounded-md px-3 py-2 text-sm font-medium transition-colors ${
+                  tokenType === "erc1155"
+                    ? "bg-white text-zinc-900 shadow-sm dark:bg-zinc-700 dark:text-zinc-100"
+                    : "text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-200"
+                }`}
+              >
+                ERC-1155
               </button>
               <button
                 onClick={() => handleTokenTypeChange("erc20")}
@@ -976,7 +1011,7 @@ function HomeContent() {
                     : "text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-200"
                 }`}
               >
-                ERC-20 (Token)
+                ERC-20
               </button>
             </div>
           </div>
@@ -1123,6 +1158,41 @@ function HomeContent() {
                     </p>
                   </div>
                 </div>
+              ) : snapshot.tokenType === "erc1155" ? (
+                <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+                  <div className="rounded-lg bg-zinc-50 p-4 dark:bg-zinc-800">
+                    <p className="text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+                      Total Holdings
+                    </p>
+                    <p className="mt-1 text-2xl font-semibold text-zinc-900 dark:text-zinc-100">
+                      {snapshot.analytics.totalHoldings.toLocaleString()}
+                    </p>
+                  </div>
+                  <div className="rounded-lg bg-zinc-50 p-4 dark:bg-zinc-800">
+                    <p className="text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+                      Unique Owners
+                    </p>
+                    <p className="mt-1 text-2xl font-semibold text-zinc-900 dark:text-zinc-100">
+                      {snapshot.analytics.uniqueOwners.toLocaleString()}
+                    </p>
+                  </div>
+                  <div className="rounded-lg bg-zinc-50 p-4 dark:bg-zinc-800">
+                    <p className="text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+                      Token Types
+                    </p>
+                    <p className="mt-1 text-2xl font-semibold text-zinc-900 dark:text-zinc-100">
+                      {snapshot.analytics.uniqueTokenIds.toLocaleString()}
+                    </p>
+                  </div>
+                  <div className="rounded-lg bg-zinc-50 p-4 dark:bg-zinc-800">
+                    <p className="text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+                      Snapshot Block
+                    </p>
+                    <p className="mt-1 text-2xl font-semibold text-zinc-900 dark:text-zinc-100">
+                      {snapshot.snapshotBlock.toLocaleString()}
+                    </p>
+                  </div>
+                </div>
               ) : (
                 <div className="space-y-4">
                   <div className="rounded-lg bg-zinc-50 p-4 dark:bg-zinc-800">
@@ -1163,7 +1233,13 @@ function HomeContent() {
                   <div className="flex items-center gap-3">
                     <input
                       type="text"
-                      placeholder={snapshot.tokenType === "erc721" ? "Search by token ID or owner..." : "Search by address or balance..."}
+                      placeholder={
+                        snapshot.tokenType === "erc721"
+                          ? "Search by token ID or owner..."
+                          : snapshot.tokenType === "erc1155"
+                          ? "Search by address, token ID or balance..."
+                          : "Search by address or balance..."
+                      }
                       value={searchQuery}
                       onChange={(e) => setSearchQuery(e.target.value)}
                       className="w-full rounded-md border border-zinc-200 bg-white px-3 py-1.5 text-sm text-zinc-900 placeholder-zinc-400 focus:border-zinc-400 focus:outline-none focus:ring-1 focus:ring-zinc-400 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100 dark:placeholder-zinc-500 dark:focus:border-zinc-500 dark:focus:ring-zinc-500 sm:w-64"
@@ -1198,6 +1274,18 @@ function HomeContent() {
                               Owner
                             </th>
                           </>
+                        ) : snapshot.tokenType === "erc1155" ? (
+                          <>
+                            <th className="px-4 py-2.5 text-left font-medium text-zinc-600 dark:text-zinc-400">
+                              Address
+                            </th>
+                            <th className="px-4 py-2.5 text-left font-medium text-zinc-600 dark:text-zinc-400">
+                              Token ID
+                            </th>
+                            <th className="px-4 py-2.5 text-right font-medium text-zinc-600 dark:text-zinc-400">
+                              Balance
+                            </th>
+                          </>
                         ) : (
                           <>
                             <th className="px-4 py-2.5 text-left font-medium text-zinc-600 dark:text-zinc-400">
@@ -1214,7 +1302,7 @@ function HomeContent() {
                       {filteredData.length === 0 ? (
                         <tr>
                           <td
-                            colSpan={2}
+                            colSpan={snapshot.tokenType === "erc1155" ? 3 : 2}
                             className="px-4 py-8 text-center text-zinc-500 dark:text-zinc-400"
                           >
                             No results found
@@ -1231,6 +1319,23 @@ function HomeContent() {
                             </td>
                             <td className="px-4 py-2">
                               <CopyableAddress address={item.owner} />
+                            </td>
+                          </tr>
+                        ))
+                      ) : snapshot.tokenType === "erc1155" ? (
+                        (filteredData as { address: string; tokenId: string; balance: string }[]).slice(0, 50).map((item, index) => (
+                          <tr
+                            key={`${item.address}-${item.tokenId}-${index}`}
+                            className="bg-white dark:bg-zinc-900"
+                          >
+                            <td className="px-4 py-2">
+                              <CopyableAddress address={item.address} />
+                            </td>
+                            <td className="px-4 py-2.5 font-mono text-zinc-900 dark:text-zinc-100">
+                              {item.tokenId}
+                            </td>
+                            <td className="px-4 py-2.5 text-right font-mono text-zinc-900 dark:text-zinc-100">
+                              {item.balance}
                             </td>
                           </tr>
                         ))
