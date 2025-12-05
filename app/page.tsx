@@ -648,6 +648,7 @@ function LoadingEntertainment({ elapsedTime }: { elapsedTime: number }) {
 
 const NETWORK_KEY = "nft-snapshot-network";
 const TOKEN_TYPE_KEY = "nft-snapshot-token-type";
+const API_KEY_KEY = "nft-snapshot-api-key";
 
 function getSavedNetwork(): Network {
   if (typeof window === "undefined") return "testnet";
@@ -677,6 +678,23 @@ function saveTokenType(tokenType: TokenType): void {
   localStorage.setItem(TOKEN_TYPE_KEY, tokenType);
 }
 
+function getSavedApiKey(): string {
+  if (typeof window === "undefined") return "";
+  try {
+    return localStorage.getItem(API_KEY_KEY) || "";
+  } catch {
+    return "";
+  }
+}
+
+function saveApiKey(apiKey: string): void {
+  if (apiKey) {
+    localStorage.setItem(API_KEY_KEY, apiKey);
+  } else {
+    localStorage.removeItem(API_KEY_KEY);
+  }
+}
+
 function HomeContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -690,6 +708,8 @@ function HomeContent() {
   const [tokenType, setTokenType] = useState<TokenType>("erc721");
   const [elapsedTime, setElapsedTime] = useState(0);
   const [floatingHearts, setFloatingHearts] = useState<{ id: number; x: number; y: number; emoji: string }[]>([]);
+  const [apiKey, setApiKey] = useState("");
+  const [showAdvanced, setShowAdvanced] = useState(false);
 
   // Console easter egg
   useEffect(() => {
@@ -719,10 +739,13 @@ function HomeContent() {
     }, 2000);
   };
 
-  // Load network and token type from localStorage on mount
+  // Load network, token type, and API key from localStorage on mount
   useEffect(() => {
     setNetwork(getSavedNetwork());
     setTokenType(getSavedTokenType());
+    const savedKey = getSavedApiKey();
+    setApiKey(savedKey);
+    if (savedKey) setShowAdvanced(true);
   }, []);
 
   // Timer for elapsed time during loading
@@ -749,6 +772,12 @@ function HomeContent() {
     setTokenType(newTokenType);
     saveTokenType(newTokenType);
     setSnapshot(null); // Clear current snapshot when switching token types
+  };
+
+  // Save API key to localStorage when it changes
+  const handleApiKeyChange = (newApiKey: string) => {
+    setApiKey(newApiKey);
+    saveApiKey(newApiKey);
   };
 
   const filteredData = useMemo(() => {
@@ -798,7 +827,10 @@ function HomeContent() {
     setSearchQuery("");
 
     try {
-      const url = `/api/snapshot?contract=${address}&network=${network}&type=${tokenType}`;
+      let url = `/api/snapshot?contract=${address}&network=${network}&type=${tokenType}`;
+      if (apiKey) {
+        url += `&apiKey=${encodeURIComponent(apiKey)}`;
+      }
 
       const response = await fetch(url);
 
@@ -814,7 +846,7 @@ function HomeContent() {
     } finally {
       setLoading(false);
     }
-  }, [contractAddress, router, network, tokenType]);
+  }, [contractAddress, router, network, tokenType, apiKey]);
 
   // Load contract from URL on initial mount
   useEffect(() => {
@@ -830,10 +862,11 @@ function HomeContent() {
 
   const handleDownloadCSV = () => {
     if (!snapshot) return;
-    window.open(
-      `/api/snapshot?contract=${snapshot.contract}&network=${network}&type=${snapshot.tokenType}&format=csv`,
-      "_blank"
-    );
+    let url = `/api/snapshot?contract=${snapshot.contract}&network=${network}&type=${snapshot.tokenType}&format=csv`;
+    if (apiKey) {
+      url += `&apiKey=${encodeURIComponent(apiKey)}`;
+    }
+    window.open(url, "_blank");
   };
 
 
@@ -975,6 +1008,55 @@ function HomeContent() {
                   {loading ? "Loading..." : "Fetch"}
                 </button>
               </div>
+            </div>
+
+            {/* Advanced Options */}
+            <div>
+              <button
+                type="button"
+                onClick={() => setShowAdvanced(!showAdvanced)}
+                className="flex cursor-pointer items-center gap-1 text-xs text-zinc-500 transition-colors hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-300"
+              >
+                <svg
+                  className={`h-3 w-3 transition-transform ${showAdvanced ? "rotate-90" : ""}`}
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                </svg>
+                Advanced options
+              </button>
+              {showAdvanced && (
+                <div className="mt-3 rounded-lg bg-zinc-50 p-4 dark:bg-zinc-800/50">
+                  <label
+                    htmlFor="apiKey"
+                    className="mb-1.5 block text-sm font-medium text-zinc-700 dark:text-zinc-300"
+                  >
+                    HyperSync API Key{" "}
+                    <span className="font-normal text-zinc-500 dark:text-zinc-400">(optional)</span>
+                  </label>
+                  <input
+                    id="apiKey"
+                    type="password"
+                    placeholder="Enter your HyperSync API key"
+                    value={apiKey}
+                    onChange={(e) => handleApiKeyChange(e.target.value)}
+                    className="w-full rounded-lg border border-zinc-200 bg-white px-4 py-2.5 text-sm text-zinc-900 placeholder-zinc-400 focus:border-zinc-400 focus:outline-none focus:ring-1 focus:ring-zinc-400 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100 dark:placeholder-zinc-500 dark:focus:border-zinc-500 dark:focus:ring-zinc-500"
+                  />
+                  <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">
+                    Skip the queue by using your own API key.{" "}
+                    <a
+                      href="https://envio.dev/app/api-tokens"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="underline decoration-zinc-300 underline-offset-2 transition-colors hover:text-zinc-700 dark:decoration-zinc-600 dark:hover:text-zinc-300"
+                    >
+                      Get one free from Envio
+                    </a>
+                  </p>
+                </div>
+              )}
             </div>
 
             {error && (

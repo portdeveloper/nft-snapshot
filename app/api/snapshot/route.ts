@@ -1,4 +1,38 @@
 import { NextRequest, NextResponse } from "next/server";
+
+// Simple semaphore for limiting concurrent HyperSync requests
+// Prevents overwhelming the HyperSync API when multiple users query simultaneously
+class Semaphore {
+  private current = 0;
+  private queue: (() => void)[] = [];
+
+  constructor(private readonly max: number) {}
+
+  async acquire(): Promise<boolean> {
+    if (this.current < this.max) {
+      this.current++;
+      return true;
+    }
+    return false;
+  }
+
+  release(): void {
+    this.current--;
+    if (this.queue.length > 0 && this.current < this.max) {
+      this.current++;
+      const next = this.queue.shift();
+      next?.();
+    }
+  }
+
+  get available(): number {
+    return this.max - this.current;
+  }
+}
+
+// Limit to 1 concurrent HyperSync fetch when using shared API key
+const hypersyncSemaphore = new Semaphore(1);
+
 type Network = "testnet" | "mainnet";
 
 // Transfer(address indexed from, address indexed to, uint256 tokenId/value)
@@ -61,7 +95,8 @@ interface HypersyncResponse<T> {
 async function queryHypersyncERC721(
   contractAddress: string,
   fromBlock: number,
-  network: Network
+  network: Network,
+  apiKey: string | undefined
 ): Promise<HypersyncResponse<HypersyncERC721Log>> {
   const query = {
     from_block: fromBlock,
@@ -80,12 +115,16 @@ async function queryHypersyncERC721(
   const timeoutId = setTimeout(() => controller.abort(), 30000);
 
   try {
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+    };
+    if (apiKey) {
+      headers["Authorization"] = `Bearer ${apiKey}`;
+    }
+
     const response = await fetch(`${HYPERSYNC_URLS[network]}/query`, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${process.env.HYPERSYNC_BEARER_TOKEN}`,
-      },
+      headers,
       body: JSON.stringify(query),
       signal: controller.signal,
     });
@@ -110,7 +149,8 @@ async function queryHypersyncERC721(
 async function queryHypersyncERC20(
   contractAddress: string,
   fromBlock: number,
-  network: Network
+  network: Network,
+  apiKey: string | undefined
 ): Promise<HypersyncResponse<HypersyncERC20Log>> {
   const query = {
     from_block: fromBlock,
@@ -129,12 +169,16 @@ async function queryHypersyncERC20(
   const timeoutId = setTimeout(() => controller.abort(), 30000);
 
   try {
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+    };
+    if (apiKey) {
+      headers["Authorization"] = `Bearer ${apiKey}`;
+    }
+
     const response = await fetch(`${HYPERSYNC_URLS[network]}/query`, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${process.env.HYPERSYNC_BEARER_TOKEN}`,
-      },
+      headers,
       body: JSON.stringify(query),
       signal: controller.signal,
     });
@@ -156,11 +200,14 @@ async function queryHypersyncERC20(
   }
 }
 
-async function getLatestBlock(network: Network): Promise<number> {
+async function getLatestBlock(network: Network, apiKey: string | undefined): Promise<number> {
+  const headers: Record<string, string> = {};
+  if (apiKey) {
+    headers["Authorization"] = `Bearer ${apiKey}`;
+  }
+
   const response = await fetch(`${HYPERSYNC_URLS[network]}/height`, {
-    headers: {
-      Authorization: `Bearer ${process.env.HYPERSYNC_BEARER_TOKEN}`,
-    },
+    headers,
   });
 
   if (!response.ok) {
@@ -178,9 +225,10 @@ interface FetchOptions {
 async function fetchERC721FromHypersync(
   contractAddress: string,
   network: Network,
+  apiKey: string | undefined,
   options: FetchOptions = {}
 ) {
-  const latestBlock = await getLatestBlock(network);
+  const latestBlock = await getLatestBlock(network, apiKey);
   const ownership = new Map<string, string>();
 
   let fromBlock = 0;
@@ -194,7 +242,7 @@ async function fetchERC721FromHypersync(
     }
 
     iterations++;
-    const response = await queryHypersyncERC721(contractAddress, fromBlock, network);
+    const response = await queryHypersyncERC721(contractAddress, fromBlock, network, apiKey);
 
     if (response.data && response.data.length > 0) {
       for (const block of response.data) {
@@ -247,9 +295,10 @@ async function fetchERC721FromHypersync(
 async function fetchERC20FromHypersync(
   contractAddress: string,
   network: Network,
+  apiKey: string | undefined,
   options: FetchOptions = {}
 ) {
-  const latestBlock = await getLatestBlock(network);
+  const latestBlock = await getLatestBlock(network, apiKey);
   const balances = new Map<string, bigint>();
 
   let fromBlock = 0;
@@ -263,7 +312,7 @@ async function fetchERC20FromHypersync(
     }
 
     iterations++;
-    const response = await queryHypersyncERC20(contractAddress, fromBlock, network);
+    const response = await queryHypersyncERC20(contractAddress, fromBlock, network, apiKey);
 
     if (response.data && response.data.length > 0) {
       for (const block of response.data) {
@@ -332,6 +381,11 @@ export async function GET(request: NextRequest) {
   const network: Network = networkParam === "mainnet" ? "mainnet" : "testnet";
   const typeParam = searchParams.get("type");
   const tokenType: TokenType = typeParam === "erc20" ? "erc20" : "erc721";
+  const userApiKey = searchParams.get("apiKey");
+
+  // Use user's API key if provided, otherwise use shared key
+  const apiKey = userApiKey || process.env.HYPERSYNC_BEARER_TOKEN;
+  const usingOwnKey = !!userApiKey;
 
   if (!contractAddress) {
     return NextResponse.json({ error: "Missing contract address" }, { status: 400 });
@@ -341,12 +395,32 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Invalid contract address format" }, { status: 400 });
   }
 
+  // Only rate limit if using shared API key
+  let acquired = true;
+  if (!usingOwnKey) {
+    acquired = await hypersyncSemaphore.acquire();
+    if (!acquired) {
+      return NextResponse.json(
+        {
+          error: "Someone else is currently using the tool. Please wait a moment and try again, or provide your own HyperSync API key to skip the queue.",
+          retryAfter: 10,
+        },
+        {
+          status: 503,
+          headers: {
+            "Retry-After": "10",
+          },
+        }
+      );
+    }
+  }
+
   try {
     // Handle ERC20 tokens (no caching)
     if (tokenType === "erc20") {
       // No timeout - fetch complete data for both preview and CSV
       const options: FetchOptions = {};
-      const result = await fetchERC20FromHypersync(contractAddress, network, options);
+      const result = await fetchERC20FromHypersync(contractAddress, network, apiKey, options);
 
       if (format === "csv") {
         const csvRows = ["address,balance"];
@@ -380,7 +454,7 @@ export async function GET(request: NextRequest) {
 
     // Handle ERC721 tokens - always fetch fresh data
     const options: FetchOptions = {};
-    const result = await fetchERC721FromHypersync(contractAddress, network, options);
+    const result = await fetchERC721FromHypersync(contractAddress, network, apiKey, options);
 
     if (format === "csv") {
       const csvRows = ["tokenId,owner"];
@@ -415,5 +489,10 @@ export async function GET(request: NextRequest) {
       { error: error instanceof Error ? error.message : "Failed to fetch snapshot" },
       { status: 500 }
     );
+  } finally {
+    // Only release semaphore if we acquired it (using shared key)
+    if (!usingOwnKey) {
+      hypersyncSemaphore.release();
+    }
   }
 }
