@@ -128,9 +128,9 @@ function CopyableText({
 
       {/* Tooltip */}
       {showTooltip && !copied && truncate && (
-        <div className="absolute bottom-full left-1/2 z-10 mb-2 -translate-x-1/2 whitespace-nowrap rounded bg-zinc-900 px-2 py-1 text-xs text-white shadow-lg dark:bg-zinc-700">
+        <div className="absolute bottom-full left-0 z-10 mb-2 whitespace-nowrap rounded bg-zinc-900 px-2 py-1 text-xs text-white shadow-lg dark:bg-zinc-700">
           {text}
-          <div className="absolute left-1/2 top-full -translate-x-1/2 border-4 border-transparent border-t-zinc-900 dark:border-t-zinc-700" />
+          <div className="absolute left-4 top-full border-4 border-transparent border-t-zinc-900 dark:border-t-zinc-700" />
         </div>
       )}
 
