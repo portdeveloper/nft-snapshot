@@ -43,10 +43,10 @@ const TRANSFER_EVENT_SIGNATURE =
 // ERC-1155 event signatures
 // TransferSingle(address indexed operator, address indexed from, address indexed to, uint256 id, uint256 value)
 const TRANSFER_SINGLE_SIGNATURE =
-  "0xc3d58168c5ae7397731d063d5bbf3d657854e8edc5b7fe4fb6c36fc7b3e9dc60";
+  "0xc3d58168c5ae7397731d063d5bbf3d657854427343f4c083240f7aacaa2d0f62";
 // TransferBatch(address indexed operator, address indexed from, address indexed to, uint256[] ids, uint256[] values)
 const TRANSFER_BATCH_SIGNATURE =
-  "0x4a39dc06d4c0dbc64b70af90fd698a233a518aa5d07e6ba3c89c9dc12e53f4a0";
+  "0x4a39dc06d4c0dbc64b70af90fd698a233a518aa5d07e595d983b8c0526c8f7fb";
 
 const HYPERSYNC_URLS: Record<Network, string> = {
   testnet: "https://monad-testnet.hypersync.xyz",
