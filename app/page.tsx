@@ -725,60 +725,17 @@ function HomeContent() {
     setTokenType(getSavedTokenType());
   }, []);
 
-  // Debug mode for testing time-based features
-  const [debugMode, setDebugMode] = useState(false);
-  const [debugTime, setDebugTime] = useState(0);
-  const [debugPosition, setDebugPosition] = useState({ x: 20, y: 20 });
-  const [isDragging, setIsDragging] = useState(false);
-  const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
-
-  // Handle debug panel dragging
-  const handleMouseDown = (e: React.MouseEvent) => {
-    setIsDragging(true);
-    setDragOffset({
-      x: e.clientX - debugPosition.x,
-      y: e.clientY - debugPosition.y,
-    });
-  };
-
-  useEffect(() => {
-    if (!isDragging) return;
-
-    const handleMouseMove = (e: MouseEvent) => {
-      setDebugPosition({
-        x: e.clientX - dragOffset.x,
-        y: e.clientY - dragOffset.y,
-      });
-    };
-
-    const handleMouseUp = () => {
-      setIsDragging(false);
-    };
-
-    window.addEventListener("mousemove", handleMouseMove);
-    window.addEventListener("mouseup", handleMouseUp);
-
-    return () => {
-      window.removeEventListener("mousemove", handleMouseMove);
-      window.removeEventListener("mouseup", handleMouseUp);
-    };
-  }, [isDragging, dragOffset]);
-
   // Timer for elapsed time during loading
   useEffect(() => {
-    if (!loading && !debugMode) {
+    if (!loading) {
       setElapsedTime(0);
       return;
     }
-    if (debugMode) return; // Don't auto-increment in debug mode
     const interval = setInterval(() => {
       setElapsedTime((prev) => prev + 1);
     }, 1000);
     return () => clearInterval(interval);
-  }, [loading, debugMode]);
-
-  // Use debug time when in debug mode
-  const displayTime = debugMode ? debugTime : elapsedTime;
+  }, [loading]);
 
   // Save network to localStorage when it changes
   const handleNetworkChange = (newNetwork: Network) => {
@@ -893,15 +850,15 @@ function HomeContent() {
   ];
 
   const getBackgroundClass = () => {
-    if (displayTime < 70) return "bg-zinc-50 dark:bg-zinc-950";
-    const colorIndex = Math.floor((displayTime - 70) / 30) % softColors.length;
+    if (elapsedTime < 70) return "bg-zinc-50 dark:bg-zinc-950";
+    const colorIndex = Math.floor((elapsedTime - 70) / 30) % softColors.length;
     return softColors[colorIndex];
   };
 
   return (
     <div className={`relative flex min-h-screen items-center justify-center px-4 py-12 transition-all duration-1000 ${getBackgroundClass()}`}>
       {/* Minecraft video background after 150 seconds */}
-      {displayTime >= 150 && (
+      {elapsedTime >= 150 && (
         <video
           autoPlay
           loop
@@ -1050,8 +1007,8 @@ function HomeContent() {
             )}
           </div>
 
-          {(loading || debugMode) && (
-            <LoadingEntertainment elapsedTime={displayTime} />
+          {loading && (
+            <LoadingEntertainment elapsedTime={elapsedTime} />
           )}
 
           {snapshot && !loading && (
@@ -1246,72 +1203,8 @@ function HomeContent() {
               Envio HyperSync
             </a>
           </span>
-          <span>·</span>
-          <button
-            onClick={() => setDebugMode(!debugMode)}
-            className="cursor-pointer transition-colors hover:text-zinc-600 dark:hover:text-zinc-300"
-          >
-            {debugMode ? "Exit Debug" : "Debug"}
-          </button>
         </footer>
 
-        {/* Debug Panel */}
-        {debugMode && (
-          <div
-            className="fixed z-50 w-80 rounded-xl border border-zinc-300 bg-white p-4 shadow-xl dark:border-zinc-700 dark:bg-zinc-800"
-            style={{ left: debugPosition.x, top: debugPosition.y }}
-          >
-            <div
-              onMouseDown={handleMouseDown}
-              className="mb-3 flex cursor-move items-center justify-between"
-            >
-              <span className="select-none text-sm font-bold text-zinc-900 dark:text-zinc-100">
-                ⠿ Debug - {debugTime}s
-              </span>
-              <button
-                onClick={() => setDebugMode(false)}
-                className="cursor-pointer text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100"
-              >
-                ✕
-              </button>
-            </div>
-            <div className="mb-3">
-              <input
-                type="range"
-                min="0"
-                max="350"
-                value={debugTime}
-                onChange={(e) => setDebugTime(Number(e.target.value))}
-                className="w-full"
-              />
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {[
-                { label: "0s Start", time: 0 },
-                { label: "20s Extended", time: 20 },
-                { label: "50s Auto-play", time: 50 },
-                { label: "70s Colors", time: 70 },
-                { label: "100s Pink", time: 100 },
-                { label: "150s Minecraft", time: 150 },
-                { label: "200s Grass", time: 200 },
-                { label: "250s Achievement", time: 250 },
-                { label: "300s Clicker", time: 300 },
-              ].map(({ label, time }) => (
-                <button
-                  key={time}
-                  onClick={() => setDebugTime(time)}
-                  className={`cursor-pointer rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
-                    debugTime >= time
-                      ? "bg-purple-600 text-white"
-                      : "bg-zinc-100 text-zinc-700 hover:bg-zinc-200 dark:bg-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-600"
-                  }`}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
       </main>
     </div>
   );
