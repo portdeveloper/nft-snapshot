@@ -755,7 +755,7 @@ function HomeContent() {
     }, 2000);
   };
 
-  // Load network, token type, and API key from localStorage on mount
+  // Load settings from localStorage on mount (URL params handled in contract loading effect)
   useEffect(() => {
     setNetwork(getSavedNetwork());
     setTokenType(getSavedTokenType());
@@ -824,8 +824,10 @@ function HomeContent() {
     }
   }, [snapshot, searchQuery]);
 
-  const handleFetch = useCallback(async (addressOverride?: string) => {
+  const handleFetch = useCallback(async (addressOverride?: string, networkOverride?: Network, tokenTypeOverride?: TokenType) => {
     const address = addressOverride || contractAddress;
+    const effectiveNetwork = networkOverride || network;
+    const effectiveTokenType = tokenTypeOverride || tokenType;
 
     if (!address) {
       setError("Please enter a contract address");
@@ -840,9 +842,17 @@ function HomeContent() {
     if (addressOverride) {
       setContractAddress(addressOverride);
     }
+    if (networkOverride) {
+      setNetwork(networkOverride);
+      saveNetwork(networkOverride);
+    }
+    if (tokenTypeOverride) {
+      setTokenType(tokenTypeOverride);
+      saveTokenType(tokenTypeOverride);
+    }
 
-    // Update URL with contract address
-    router.push(`/?contract=${address}`, { scroll: false });
+    // Update URL with contract address, network, and token type
+    router.push(`/?contract=${address}&network=${effectiveNetwork}&type=${effectiveTokenType}`, { scroll: false });
 
     setError("");
     setLoading(true);
@@ -850,7 +860,7 @@ function HomeContent() {
     setSearchQuery("");
 
     try {
-      let url = `/api/snapshot?contract=${address}&network=${network}&type=${tokenType}`;
+      let url = `/api/snapshot?contract=${address}&network=${effectiveNetwork}&type=${effectiveTokenType}`;
       if (apiKey) {
         url += `&apiKey=${encodeURIComponent(apiKey)}`;
       }
@@ -875,9 +885,13 @@ function HomeContent() {
   useEffect(() => {
     if (initialLoad) {
       const contractFromUrl = searchParams.get("contract");
+      const networkFromUrl = searchParams.get("network");
+      const typeFromUrl = searchParams.get("type");
+
       if (contractFromUrl && /^0x[a-fA-F0-9]{40}$/.test(contractFromUrl)) {
-        setContractAddress(contractFromUrl);
-        handleFetch(contractFromUrl);
+        const urlNetwork = (networkFromUrl === "mainnet" || networkFromUrl === "testnet") ? networkFromUrl : undefined;
+        const urlTokenType = (typeFromUrl === "erc721" || typeFromUrl === "erc20" || typeFromUrl === "erc1155") ? typeFromUrl : undefined;
+        handleFetch(contractFromUrl, urlNetwork, urlTokenType);
       }
       setInitialLoad(false);
     }
