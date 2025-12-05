@@ -938,7 +938,7 @@ function HomeContent() {
           {heart.emoji}
         </div>
       ))}
-      <main className="relative z-10 w-full max-w-2xl">
+      <main className="relative z-10 w-full max-w-3xl">
         <div className="rounded-2xl bg-white p-8 shadow-sm dark:bg-zinc-900">
           <div className="mb-6 flex items-start justify-between">
             <div>
@@ -1401,7 +1401,7 @@ export default function Home() {
   return (
     <Suspense fallback={
       <div className="flex min-h-screen items-center justify-center bg-zinc-50 px-4 dark:bg-zinc-950">
-        <div className="w-full max-w-2xl">
+        <div className="w-full max-w-3xl">
           <div className="overflow-hidden rounded-2xl bg-zinc-900">
             <video
               autoPlay
