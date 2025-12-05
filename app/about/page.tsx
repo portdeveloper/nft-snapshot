@@ -3,13 +3,13 @@ import type { Metadata } from "next";
 
 export const metadata: Metadata = {
   title: "About - Token Snapshot",
-  description: "Learn how Token Snapshot works for ERC-721 NFTs and ERC-20 tokens on Monad",
+  description: "Learn how Token Snapshot works for ERC-721, ERC-1155, and ERC-20 tokens on Monad",
 };
 
 export default function About() {
   return (
     <div className="flex min-h-screen items-center justify-center bg-zinc-50 px-4 py-12 dark:bg-zinc-950">
-      <main className="w-full max-w-2xl">
+      <main className="w-full max-w-3xl">
         <div className="rounded-2xl bg-white p-8 shadow-sm dark:bg-zinc-900">
           <Link
             href="/"
@@ -45,9 +45,9 @@ export default function About() {
               </h2>
               <p className="text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
                 Token Snapshot is an official Monad DevRel tool that allows projects to capture
-                a complete snapshot of token ownership for any ERC-721 (NFT) collection or ERC-20 token on Monad.
-                This is especially useful before testnet regenesis events, enabling projects to
-                redistribute tokens to their original holders afterward.
+                a complete snapshot of token ownership for any ERC-721 (NFT), ERC-1155 (Multi-Token),
+                or ERC-20 token on Monad. This is especially useful before testnet regenesis events,
+                enabling projects to redistribute tokens to their original holders afterward.
               </p>
             </section>
 
@@ -59,12 +59,16 @@ export default function About() {
                 <div>
                   <span className="font-medium text-zinc-900 dark:text-zinc-100">ERC-721 (NFTs)</span>
                   {" "}- Captures ownership of each individual token ID. Results show which address owns each NFT.
-                  Snapshots are cached for faster access.
+                </div>
+                <div>
+                  <span className="font-medium text-zinc-900 dark:text-zinc-100">ERC-1155 (Multi-Token)</span>
+                  {" "}- Captures balances for all token IDs across all holders. Results show each address,
+                  token ID, and balance. Supports both TransferSingle and TransferBatch events.
                 </div>
                 <div>
                   <span className="font-medium text-zinc-900 dark:text-zinc-100">ERC-20 (Tokens)</span>
                   {" "}- Captures token balances for all holders. Results show each address and their balance
-                  (as raw values without decimal adjustment). ERC-20 snapshots are fetched fresh each time.
+                  (as raw values without decimal adjustment).
                 </div>
               </div>
             </section>
@@ -76,7 +80,7 @@ export default function About() {
               <ol className="list-inside list-decimal space-y-3 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
                 <li>
                   <span className="font-medium text-zinc-900 dark:text-zinc-100">Select Token Type</span>
-                  {" "}- Choose between ERC-721 (NFT) or ERC-20 (Token) mode
+                  {" "}- Choose between ERC-721 (NFT), ERC-1155 (Multi-Token), or ERC-20 (Token)
                 </li>
                 <li>
                   <span className="font-medium text-zinc-900 dark:text-zinc-100">Enter Contract Address</span>
@@ -100,20 +104,8 @@ export default function About() {
               <p className="text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
                 <span className="font-medium text-zinc-900 dark:text-zinc-100">CSV Export</span>
                 {" "}- Simple format for airdrops or manual processing. For ERC-721: tokenId and owner columns.
-                For ERC-20: address and balance columns. You can generate merkle trees from this data
-                using standard libraries if needed for claim contracts.
-              </p>
-            </section>
-
-            <section>
-              <h2 className="mb-3 text-lg font-medium text-zinc-900 dark:text-zinc-100">
-                Caching
-              </h2>
-              <p className="text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
-                ERC-721 snapshots are cached in our database for faster subsequent access. Cache automatically
-                refreshes if the data is older than 1 hour. You can also manually refresh by clicking
-                the &quot;Refresh&quot; button to get the latest data. ERC-20 snapshots are always fetched fresh
-                to ensure accuracy, as token balances change more frequently.
+                For ERC-1155: address, tokenId, and balance columns. For ERC-20: address and balance columns.
+                You can generate merkle trees from this data using standard libraries if needed for claim contracts.
               </p>
             </section>
 
@@ -122,9 +114,8 @@ export default function About() {
                 Shareable URLs
               </h2>
               <p className="text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
-                Each snapshot has a shareable URL. Simply copy the URL from your browser after
-                fetching a snapshot to share it with others. They&apos;ll see the same snapshot data
-                instantly.
+                Each snapshot has a shareable URL that includes the contract address, network, and token type.
+                Simply copy the URL from your browser after fetching a snapshot to share it with others.
               </p>
             </section>
 
