@@ -606,7 +606,9 @@ export async function GET(request: NextRequest) {
   const network: Network = networkParam === "mainnet" ? "mainnet" : "testnet";
   const typeParam = searchParams.get("type");
   const tokenType: TokenType = typeParam === "erc20" ? "erc20" : typeParam === "erc1155" ? "erc1155" : "erc721";
-  const userApiKey = searchParams.get("apiKey");
+
+  // Read API key from header (not URL params to avoid logging/history exposure)
+  const userApiKey = request.headers.get("x-api-key");
 
   // Use user's API key if provided, otherwise use shared key
   const apiKey = userApiKey || process.env.HYPERSYNC_BEARER_TOKEN;

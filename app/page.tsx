@@ -860,12 +860,13 @@ function HomeContent() {
     setSearchQuery("");
 
     try {
-      let url = `/api/snapshot?contract=${address}&network=${effectiveNetwork}&type=${effectiveTokenType}`;
+      const url = `/api/snapshot?contract=${address}&network=${effectiveNetwork}&type=${effectiveTokenType}`;
+      const headers: HeadersInit = {};
       if (apiKey) {
-        url += `&apiKey=${encodeURIComponent(apiKey)}`;
+        headers["x-api-key"] = apiKey;
       }
 
-      const response = await fetch(url);
+      const response = await fetch(url, { headers });
 
       if (!response.ok) {
         const data = await response.json();
@@ -897,13 +898,29 @@ function HomeContent() {
     }
   }, [initialLoad, searchParams, handleFetch]);
 
-  const handleDownloadCSV = () => {
+  const handleDownloadCSV = async () => {
     if (!snapshot) return;
-    let url = `/api/snapshot?contract=${snapshot.contract}&network=${network}&type=${snapshot.tokenType}&format=csv`;
+    const url = `/api/snapshot?contract=${snapshot.contract}&network=${network}&type=${snapshot.tokenType}&format=csv`;
+    const headers: HeadersInit = {};
     if (apiKey) {
-      url += `&apiKey=${encodeURIComponent(apiKey)}`;
+      headers["x-api-key"] = apiKey;
     }
-    window.open(url, "_blank");
+
+    try {
+      const response = await fetch(url, { headers });
+      if (!response.ok) throw new Error("Failed to download");
+      const blob = await response.blob();
+      const downloadUrl = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = downloadUrl;
+      a.download = `${snapshot.contract}-${snapshot.tokenType}-snapshot.csv`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(downloadUrl);
+    } catch (err) {
+      setError("Failed to download CSV");
+    }
   };
 
 
