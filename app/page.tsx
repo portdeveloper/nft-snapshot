@@ -512,7 +512,7 @@ function LoadingEntertainment({ elapsedTime }: { elapsedTime: number }) {
         {elapsedTime > 0 ? `Fetching... ${elapsedTime}s` : "Fetching..."}
       </p>
 
-      {!showExtended && (
+      {elapsedTime >= 1 && !showExtended && (
         <div className="overflow-hidden rounded-xl">
           <video
             autoPlay
@@ -1433,16 +1433,16 @@ export default function Home() {
     <Suspense fallback={
       <div className="flex min-h-screen items-center justify-center bg-zinc-50 px-4 dark:bg-zinc-950">
         <div className="w-full max-w-3xl">
-          <div className="overflow-hidden rounded-2xl bg-zinc-900">
-            <video
-              autoPlay
-              loop
-              muted
-              playsInline
-              preload="auto"
-              className="aspect-video w-full object-cover"
-              src="/loading.mp4"
-            />
+          <div className="animate-pulse rounded-2xl bg-white p-8 shadow-sm dark:bg-zinc-900">
+            <div className="mb-6 flex items-start justify-between">
+              <div>
+                <div className="mb-2 h-7 w-32 rounded bg-zinc-200 dark:bg-zinc-700" />
+                <div className="h-4 w-64 rounded bg-zinc-100 dark:bg-zinc-800" />
+              </div>
+              <div className="h-9 w-40 rounded-lg bg-zinc-100 dark:bg-zinc-800" />
+            </div>
+            <div className="mb-6 h-11 w-full rounded-lg bg-zinc-100 dark:bg-zinc-800" />
+            <div className="h-12 w-full rounded-lg bg-zinc-100 dark:bg-zinc-800" />
           </div>
         </div>
       </div>
